@@ -17,4 +17,7 @@ export const CONFIG = {
     BATCH_SIZE: int("INTENT_BATCH_SIZE", { default: 20, min: 1 }),
     TINY_BATCH_FRACTION: number("INTENT_TINY_BATCH_FRACTION", { default: 0.2, min: 0, max: 1 }),
   },
+  TEST: {
+    SCOPE: string("TEST_SCOPE", { default: "all" }),
+  },
 } as const;

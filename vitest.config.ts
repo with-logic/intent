@@ -1,7 +1,8 @@
-import "dotenv/config";
 import { defineConfig } from "vitest/config";
 
-const scope = process.env.TEST_SCOPE ?? "all"; // unit | int | all
+import { CONFIG } from "./src/config";
+
+const scope = CONFIG.TEST.SCOPE;
 const includePatterns =
   scope === "unit"
     ? ["src/**/*.unit.test.ts"]

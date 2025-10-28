@@ -146,7 +146,8 @@ function shouldRetry(err: any, remaining: number): boolean {
  *
  * @example
  * ```typescript
- * const client = createDefaultGroqClient(process.env.GROQ_API_KEY!);
+ * import { CONFIG } from "../config";
+ * const client = createDefaultGroqClient(CONFIG.GROQ.API_KEY);
  * const result = await client.call(messages, schema, { model: "llama-3.3-70b" });
  * ```
  */

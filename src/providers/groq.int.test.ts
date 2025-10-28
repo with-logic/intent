@@ -1,15 +1,16 @@
 import { describe, expect, test } from "vitest";
 
+import { CONFIG } from "../config";
 import { buildMessages } from "../messages";
 import { buildRelevancySchema } from "../schema";
 
 import { createDefaultGroqClient } from "./groq";
 
-const hasKey = Boolean(process.env.GROQ_API_KEY);
+const hasKey = Boolean(CONFIG.GROQ.API_KEY);
 
 describe.skipIf(!hasKey)("groq provider integration", () => {
   test.concurrent("provider returns scores for all schema keys", async () => {
-    const client = createDefaultGroqClient(process.env.GROQ_API_KEY!);
+    const client = createDefaultGroqClient(CONFIG.GROQ.API_KEY);
     const candidates = [
       { key: "A", summary: "first" },
       { key: "B", summary: "second" },
@@ -28,7 +29,7 @@ describe.skipIf(!hasKey)("groq provider integration", () => {
   });
 
   test.concurrent("assigns 0 to unrelated and >0 to related", async () => {
-    const client = createDefaultGroqClient(process.env.GROQ_API_KEY!);
+    const client = createDefaultGroqClient(CONFIG.GROQ.API_KEY);
     const candidates = [
       { key: "JS Arrays", summary: "Guide to sorting arrays in JavaScript" },
       { key: "Banana Bread Recipe", summary: "How to bake banana bread" },

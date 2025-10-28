@@ -36,8 +36,6 @@ export type RerankerCandidate = {
   summary: string;
 };
 
-// RerankerConfig moved to reranker_config.ts to centralize defaults/env/validation
-
 export type RerankerExtractors<T> = {
   key: (item: T) => string;
   summary?: (item: T) => string;
