@@ -26,14 +26,30 @@ function makeCtx(overrides: Partial<IntentContext> = {}): IntentContext & {
 
 describe("Reranker.rerank", () => {
   test("throws when no llm and no GROQ_API_KEY", async () => {
-    const oldKey = process.env.GROQ_API_KEY;
-    delete (process.env as any).GROQ_API_KEY;
+    const { CONFIG } = await import("./config");
+
     try {
-      expect(() => new Reranker<RerankerCandidate>({} as any, { key: (c) => c.key })).toThrow(
-        /No LLM client provided/,
-      );
+      // Mock CONFIG to return empty API key
+      vi.doMock("./config", () => ({
+        CONFIG: {
+          ...CONFIG,
+          GROQ: {
+            ...CONFIG.GROQ,
+            API_KEY: "",
+          },
+        },
+      }));
+
+      // Re-import modules to get mocked config
+      vi.resetModules();
+      const { Reranker: RerankerWithMock } = await import("./reranker");
+
+      expect(
+        () => new RerankerWithMock<RerankerCandidate>({} as any, { key: (c) => c.key }),
+      ).toThrow(/No LLM client provided/);
     } finally {
-      process.env.GROQ_API_KEY = oldKey;
+      vi.doUnmock("./config");
+      vi.resetModules();
     }
   });
 

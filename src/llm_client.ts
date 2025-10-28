@@ -1,3 +1,4 @@
+import { CONFIG } from "./config";
 import { createDefaultGroqClient } from "./providers/groq";
 
 import type { LlmClient, IntentContext } from "./types";
@@ -17,7 +18,7 @@ export function selectLlmClient(ctx: IntentContext): LlmClient | undefined {
   if (ctx.llm) {
     return ctx.llm;
   }
-  const groqKey = process.env.GROQ_API_KEY;
+  const groqKey = CONFIG.GROQ.API_KEY;
   if (groqKey && groqKey !== "") {
     return createDefaultGroqClient(groqKey);
   }

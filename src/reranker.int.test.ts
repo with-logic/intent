@@ -1,8 +1,9 @@
 import { describe, expect, test } from "vitest";
 
+import { CONFIG } from "./config";
 import { Reranker } from "./reranker";
 
-const hasKey = Boolean(process.env.GROQ_API_KEY);
+const hasKey = Boolean(CONFIG.GROQ.API_KEY);
 
 describe.skipIf(!hasKey)("reranker integration", () => {
   test.concurrent(
