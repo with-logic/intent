@@ -66,12 +66,21 @@ The library reads `.env` automatically when imported. Create a `.env` file in yo
 GROQ_API_KEY=your_groq_api_key_here
 
 # Optional: customize defaults
-INTENT_MODEL=llama-3.1-70b-versatile
+INTENT_MODEL=openai/gpt-oss-120b
 INTENT_TIMEOUT_MS=30000
 INTENT_RELEVANCY_THRESHOLD=0
 INTENT_BATCH_SIZE=20
 INTENT_TINY_BATCH_FRACTION=0.15
 ```
+
+**Configuration Options:**
+
+- **`GROQ_API_KEY`**: Your Groq API key. Required if not providing a custom `ctx.llm` client.
+- **`INTENT_MODEL`**: LLM model to use for reranking (default: `openai/gpt-oss-20b`). Any Groq-supported model works here.
+- **`INTENT_TIMEOUT_MS`**: Maximum time in milliseconds to wait for LLM responses (default: `3000`). Increase for larger batches or slower models.
+- **`INTENT_RELEVANCY_THRESHOLD`**: Minimum relevance score (0-10) to include in results (default: `0`). Higher values = more selective filtering.
+- **`INTENT_BATCH_SIZE`**: Number of candidates to score per LLM call (default: `20`). Tune based on your model's context window and candidate summary length.
+- **`INTENT_TINY_BATCH_FRACTION`**: Threshold for merging small trailing batches (default: `0.2`). If the last batch is smaller than this fraction of `BATCH_SIZE`, it gets merged with the previous batch to avoid inefficient LLM calls.
 
 Development
 
@@ -97,14 +106,9 @@ Groq default
 
 Config
 
-- Reranker config can be supplied at construction or via environment variables.
-- Env keys (all optional):
-  - `INTENT_MODEL`
-  - `INTENT_TIMEOUT_MS`
-  - `INTENT_RELEVANCY_THRESHOLD`
-  - `INTENT_BATCH_SIZE`
-  - `INTENT_TINY_BATCH_FRACTION`
+- Reranker config can be supplied at construction or via environment variables (see Configuration section above for details).
 - The library reads `.env` automatically when imported, so `INTENT_*` keys in your `.env` are honored.
+- Constructor config overrides environment variables for fine-grained control per instance.
 
 Usage
 

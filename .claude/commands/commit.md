@@ -35,3 +35,5 @@ that will only happen if you run the commands as the local user.
 
 IMPORTANT: DO NOT add any new / unstaged changes to the commit. Only review
 and commit what is already staged.
+
+NEVER ADD UNSTAGED FILES TO THE COMMIT
