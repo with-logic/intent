@@ -1,0 +1,160 @@
+# This workflow manages Claude Code integration with multiple trigger types:
+# 1. claude-mentions: Manual triggers via @claude mentions in PRs and issues
+# 2. claude-pr-review: Automatic PR reviews on creation
+# 3. claude-extract-lessons: Extract lessons from approved PRs
+#
+# Security Note: Auto-issue completion is intentionally disabled to prevent abuse
+# from external contributors. Only collaborators can trigger @claude mentions.
+name: Claude Code
+
+on:
+  issue_comment:
+    types: [created]
+  pull_request_review_comment:
+    types: [created]
+  issues:
+    types: [assigned] # Only on assignment, not on creation
+  pull_request_review:
+    types: [submitted]
+  pull_request:
+    types: [opened]
+
+jobs:
+  claude-handle-mentions:
+    name: "Claude: Handle @mentions"
+    # Only run on @claude mentions, not on issue creation
+    if: |
+      (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@claude')) ||
+      (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@claude')) ||
+      (github.event_name == 'pull_request_review' && contains(github.event.review.body, '@claude')) ||
+      (github.event_name == 'issues' && github.event.action == 'assigned' && (contains(github.event.issue.body, '@claude') || contains(github.event.issue.title, '@claude')))
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+      id-token: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run Claude Code - Handle Mentions
+        id: claude
+        uses: anthropics/claude-code-action@beta
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          model: "claude-sonnet-4-5"
+          fallback_model: "claude-opus-4-1"
+          use_commit_signing: true
+          allowed_tools: "Bash,Edit,MultiEdit,Write,Read,WebFetch,WebSearch,Glob,Grep"
+        env:
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+
+  claude-review-pr:
+    name: "Claude: Review New PR"
+    if: github.event_name == 'pull_request' && github.event.action == 'opened'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+      id-token: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Read PR review prompt
+        id: read-prompt
+        run: |
+          {
+            echo 'prompt<<EOF'
+            cat .github/pr-review-prompt.md
+            echo
+            echo 'EOF'
+          } >> $GITHUB_OUTPUT
+
+      - name: Run Claude Code - Review PR
+        id: claude-review
+        uses: anthropics/claude-code-action@beta
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          model: "claude-sonnet-4-5"
+          fallback_model: "claude-opus-4-1"
+          use_commit_signing: true
+          allowed_tools: "Bash,Edit,MultiEdit,Write,Read,WebFetch,WebSearch,Glob,Grep"
+          direct_prompt: ${{ steps.read-prompt.outputs.prompt }}
+        env:
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+
+  claude-extract-lessons:
+    name: "Claude: Extract PR Lessons"
+    # Only run when a PR is approved by a human (not github-actions bot)
+    if: github.event_name == 'pull_request_review' && github.event.review.state == 'approved' && github.actor != 'github-actions'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+      id-token: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Read PR lessons prompt
+        id: read-lessons-prompt
+        run: |
+          {
+            echo 'prompt<<EOF'
+            cat .github/pr-lessons-prompt.md
+            echo
+            echo 'EOF'
+          } >> $GITHUB_OUTPUT
+
+      - name: Run Claude Code - Extract PR Lessons
+        id: claude-lessons
+        uses: anthropics/claude-code-action@beta
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          model: "claude-sonnet-4-5"
+          fallback_model: "claude-opus-4-1"
+          use_commit_signing: true
+          allowed_tools: "Bash,Edit,MultiEdit,Write,Read,WebFetch,WebSearch,Glob,Grep"
+          direct_prompt: ${{ steps.read-lessons-prompt.outputs.prompt }}
+        env:
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
