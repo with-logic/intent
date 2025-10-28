@@ -1,0 +1,9 @@
+dist
+node_modules
+coverage
+.DS_Store
+
+# Don't format Prettier's own config
+.prettierrc.json
+.prettierignore
+

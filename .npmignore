@@ -1,0 +1,29 @@
+# Source files
+src/
+
+# Test files
+**/*.test.ts
+**/*.spec.ts
+**/*.test.tsx
+**/*.spec.tsx
+
+# Config files
+tsconfig.json
+vitest.config.ts
+eslint.config.js
+.prettierrc.json
+.prettierignore
+
+# Development files
+CLAUDE.md
+TODO
+.claude/
+
+# Build artifacts
+coverage/
+.DS_Store
+*.log
+
+# Git
+.git/
+.gitignore

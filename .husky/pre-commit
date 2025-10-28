@@ -1,0 +1,8 @@
+#!/usr/bin/env sh
+. "$(dirname -- "$0")/_/husky.sh"
+
+# Run pre-commit checks (auto-fixes formatting/linting, then runs typecheck, tests, and build)
+npm run pre-commit
+
+# Re-add any files that were auto-fixed by linting
+git add -u
