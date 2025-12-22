@@ -17,8 +17,8 @@ describe("reranker integration", () => {
       });
 
       const out = await intent.rank("Help me sort a JavaScript array", [
-        { key: "JS Arrays", summary: "Guide to sorting arrays in JavaScript" },
         { key: "Saturns Moons", summary: "The chemical composition of Saturn's moons" },
+        { key: "JS Arrays", summary: "Guide to sorting arrays in JavaScript" },
         { key: "Eiffel Tower", summary: "Directions to the tower" },
       ]);
 

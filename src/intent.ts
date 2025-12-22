@@ -57,6 +57,19 @@ export class Intent<T = any> {
   private readonly env: typeof CONFIG;
 
   /**
+   * Resolve the model name to use for this Intent instance.
+   *
+   * Intent is provider-driven. Today only GROQ is supported; when using GROQ
+   * we always take the model from GROQ's config defaults.
+   *
+   * @returns Provider-specific model name
+   * @private
+   */
+  private resolveModel(): string {
+    return this.env.GROQ.DEFAULT_MODEL;
+  }
+
+  /**
    * Builds the context object from options.
    *
    * Constructs an IntentContext with only defined properties to satisfy
@@ -102,7 +115,7 @@ export class Intent<T = any> {
    */
   private buildConfig(options: IntentOptions<T>): Required<IntentConfig> {
     return {
-      model: options.model ?? this.env.INTENT.MODEL,
+      provider: options.provider ?? this.env.INTENT.PROVIDER,
       timeoutMs: options.timeoutMs ?? this.env.INTENT.TIMEOUT_MS,
       relevancyThreshold: options.relevancyThreshold ?? this.env.INTENT.RELEVANCY_THRESHOLD,
       batchSize: options.batchSize ?? this.env.INTENT.BATCH_SIZE,
@@ -173,7 +186,7 @@ export class Intent<T = any> {
    * @param options.userId - Optional user identifier for LLM provider abuse monitoring
    * @param options.key - Optional function extracting a short human-readable key from items
    * @param options.summary - Optional function extracting a short description for LLM reasoning
-   * @param options.model - Optional model name override (default: INTENT_MODEL or "openai/gpt-oss-20b")
+   * @param options.provider - Optional provider override (default: INTENT_PROVIDER or "GROQ")
    * @param options.timeoutMs - Optional timeout in milliseconds (default: INTENT_TIMEOUT_MS or 3000)
    * @param options.relevancyThreshold - Optional minimum score to include results (default: INTENT_RELEVANCY_THRESHOLD)
    * @param options.minScore - Optional minimum score value (default: INTENT_MIN_SCORE or 0)
@@ -401,7 +414,7 @@ export class Intent<T = any> {
     userId?: string,
   ): Promise<Record<string, { explanation: string; score: number }> | null> {
     const config: LlmCallConfig = {
-      model: this.cfg.model,
+      model: this.resolveModel(),
       temperature: 0,
       timeoutMs: this.cfg.timeoutMs,
     };

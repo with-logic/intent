@@ -64,7 +64,7 @@ export type CamelCasedProps<T> = {
  * This is a camelCase version of the INTENT config object from config.ts.
  */
 export type IntentConfig = {
-  model?: string;
+  provider?: "GROQ";
   timeoutMs?: number;
   relevancyThreshold?: number;
   batchSize?: number;

@@ -1,5 +1,5 @@
 import "dotenv/config";
-import { int, number, string } from "./lib/config";
+import { enumString, int, number, string } from "./lib/config";
 
 /**
  * Exported config object (no function call required) following API patterns.
@@ -12,7 +12,7 @@ export const CONFIG = {
     JSON_REPAIR_ATTEMPTS: int("GROQ_JSON_REPAIR_ATTEMPTS", { default: 3, min: 0 }),
   },
   INTENT: {
-    MODEL: string("INTENT_MODEL", { default: "openai/gpt-oss-20b" }),
+    PROVIDER: enumString("INTENT_PROVIDER", { default: "GROQ", values: ["GROQ"] as const }),
     TIMEOUT_MS: int("INTENT_TIMEOUT_MS", { default: 3000, min: 1 }),
     MIN_SCORE: int("INTENT_MIN_SCORE", { default: 0 }),
     MAX_SCORE: int("INTENT_MAX_SCORE", { default: 10, min: 1 }),

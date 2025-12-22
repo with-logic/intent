@@ -27,6 +27,30 @@ function makeCtx(overrides: Partial<IntentContext> = {}): IntentContext & {
 }
 
 describe("Intent.rank", () => {
+  test("uses GROQ default model when no model override is provided", async () => {
+    const ctx = makeCtx();
+    (ctx.llm.call as any).mockResolvedValueOnce({
+      data: {
+        A: { explanation: "a", score: 10 },
+        B: { explanation: "b", score: 0 },
+      },
+    });
+
+    const intent = new Intent<IntentCandidate>({
+      ...ctx,
+      key: (c) => c.key,
+      summary: (c) => c.summary,
+    });
+
+    await intent.rank("query", [
+      { key: "A", summary: "" },
+      { key: "B", summary: "" },
+    ]);
+
+    const call = (ctx.llm.call as any).mock.calls[0];
+    expect(call[2].model).toBe(CONFIG.GROQ.DEFAULT_MODEL);
+  });
+
   test("candidate evaluation schema defines explanation before score", () => {
     const schema = buildCandidateEvaluationSchema(0, 10);
     expect(Object.keys(schema.properties)).toEqual(["explanation", "score"]);
@@ -193,6 +217,7 @@ describe("Intent.rank", () => {
     expect(res.map((c) => c.key)).toEqual(["A", "B"]);
     const call = (ctx.llm.call as any).mock.calls[0];
     expect(call[2].timeoutMs).toBe(3000); // default
+    expect(call[2].model).toBe("openai/gpt-oss-20b"); // GROQ default model
   });
 
   test("handles non-numeric or missing scores by clamping to 0", async () => {
