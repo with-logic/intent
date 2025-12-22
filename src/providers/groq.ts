@@ -5,6 +5,65 @@ import { CONFIG } from "../config";
 import type { ChatMessage, JSONObject, LlmCallConfig, LlmClient } from "../types";
 import type { ChatCompletionMessageParam } from "groq-sdk/resources/chat/completions";
 
+type GroqTimeoutOptions = { timeout?: number };
+
+type GroqJsonSchemaResponseFormat = {
+  type: "json_schema";
+  json_schema: {
+    name: string;
+    schema: JSONObject;
+    strict: true;
+  };
+};
+
+type GroqChatCompletionRequest = {
+  model: string;
+  temperature: number;
+  messages: ChatCompletionMessageParam[];
+  user?: string;
+  response_format: GroqJsonSchemaResponseFormat;
+};
+
+type GroqChatCompletionResponse = {
+  choices: Array<{
+    message?: {
+      content?: string | null;
+    };
+  }>;
+};
+
+type GroqApiErrorLike = {
+  code?: string;
+  error?: {
+    code?: string | undefined;
+  };
+};
+
+/**
+ * Narrow an unknown error to the Groq-shaped error payloads we care about.
+ *
+ * @param err - Any thrown value
+ * @returns Best-effort Groq error shape for retry decisions
+ * @private
+ */
+function asGroqApiErrorLike(err: unknown): GroqApiErrorLike {
+  if (err == null || typeof err !== "object") {
+    return {};
+  }
+  const record = err as Record<string, unknown>;
+  const error = record.error;
+  const errorObj =
+    error != null && typeof error === "object" ? (error as Record<string, unknown>) : undefined;
+
+  const code = typeof record.code === "string" ? record.code : undefined;
+  const nestedCode = errorObj && typeof errorObj.code === "string" ? errorObj.code : undefined;
+
+  return {
+    ...(code !== undefined && { code }),
+    ...(nestedCode !== undefined && { error: { code: nestedCode } }),
+  };
+}
+
 /**
  * Map internal ChatMessage to groq-sdk ChatCompletionMessageParam.
  *
@@ -44,11 +103,12 @@ function buildGroqRequest(
   outputSchema: JSONObject,
   groqMessages: ChatCompletionMessageParam[],
   config: LlmCallConfig | undefined,
-  userId?: string,
-): any {
+  userId: string | undefined,
+  defaults: { model: string; temperature: number },
+): GroqChatCompletionRequest {
   return {
-    model: config?.model ?? CONFIG.GROQ.DEFAULT_MODEL,
-    temperature: config?.temperature ?? CONFIG.GROQ.DEFAULT_TEMPERATURE,
+    model: config?.model ?? defaults.model,
+    temperature: config?.temperature ?? defaults.temperature,
     messages: groqMessages,
     ...(userId ? { user: userId } : {}),
     response_format: {
@@ -73,8 +133,13 @@ function buildGroqRequest(
  * @returns Raw completion response from Groq
  * @private
  */
-async function executeCompletion(client: Groq, request: any, timeoutMs?: number): Promise<any> {
-  const timeout = typeof timeoutMs === "number" ? { timeout: timeoutMs } : undefined;
+async function executeCompletion(
+  client: GroqSdkLike,
+  request: GroqChatCompletionRequest,
+  timeoutMs?: number,
+): Promise<GroqChatCompletionResponse> {
+  const timeout: GroqTimeoutOptions | undefined =
+    typeof timeoutMs === "number" ? { timeout: timeoutMs } : undefined;
   return client.chat.completions.create(request, timeout);
 }
 
@@ -89,7 +154,7 @@ async function executeCompletion(client: Groq, request: any, timeoutMs?: number)
  * @throws {Error} If content is missing or invalid
  * @private
  */
-function getResponseContent(response: any): string {
+function getResponseContent(response: GroqChatCompletionResponse): string {
   const content: string | null | undefined = response?.choices?.[0]?.message?.content;
   if (typeof content !== "string") {
     throw new Error("Groq did not return content");
@@ -128,8 +193,8 @@ function parseJson<T>(content: string): { data: T } {
  * @returns True if error is retriable and retries remain
  * @private
  */
-function shouldRetry(err: any, remaining: number): boolean {
-  const code = err?.code ?? err?.error?.code;
+function shouldRetry(err: GroqApiErrorLike, remaining: number): boolean {
+  const code = err.code ?? err.error?.code;
   return code === "json_validate_failed" && remaining > 1;
 }
 
@@ -151,7 +216,71 @@ function shouldRetry(err: any, remaining: number): boolean {
  * const result = await client.call(messages, schema, { model: "llama-3.3-70b" });
  * ```
  */
-export function createDefaultGroqClient(apiKey: string): LlmClient {
+export type GroqSdkLike = {
+  chat: {
+    completions: {
+      create: (
+        req: GroqChatCompletionRequest,
+        opts?: GroqTimeoutOptions,
+      ) => Promise<GroqChatCompletionResponse>;
+    };
+  };
+};
+
+type GroqClientFactory = (apiKey: string) => GroqSdkLike;
+
+/**
+ * Create a GroqSdkLike wrapper around groq-sdk.
+ *
+ * This keeps our provider surface strongly typed while isolating groq-sdk's
+ * broader request/response types to a single boundary.
+ *
+ * @param apiKey - Groq API key
+ * @returns GroqSdkLike wrapper
+ * @private
+ */
+export function createGroqSdkLike(apiKey: string): GroqSdkLike {
+  const sdk = new Groq({ apiKey }) as any;
+  return {
+    chat: {
+      completions: {
+        create: async (req, opts) => {
+          // groq-sdk's types lag behind json_schema support; keep the boundary localized.
+          return (await (sdk.chat.completions.create as any)(
+            req,
+            opts,
+          )) as GroqChatCompletionResponse;
+        },
+      },
+    },
+  };
+}
+
+/**
+ * Create the underlying Groq SDK client.
+ *
+ * This wrapper exists to make the default SDK construction path unit-testable.
+ *
+ * @param options - Groq SDK constructor options
+ * @returns Groq SDK client
+ * @private
+ */
+export function createGroqSdk(options: { apiKey: string }): unknown {
+  return new Groq(options);
+}
+
+export function createDefaultGroqClient(
+  apiKey: string,
+  options?: {
+    defaults?: { model?: string; temperature?: number };
+    makeSdk?: (apiKey: string) => GroqSdkLike;
+  },
+): LlmClient {
+  const defaults = {
+    model: options?.defaults?.model ?? CONFIG.GROQ.DEFAULT_MODEL,
+    temperature: options?.defaults?.temperature ?? CONFIG.GROQ.DEFAULT_TEMPERATURE,
+  } as const;
+  const makeSdk: GroqClientFactory = options?.makeSdk ?? createGroqSdkLike;
   return {
     /**
      * Call Groq with JSON schema enforced response and return parsed data.
@@ -176,9 +305,9 @@ export function createDefaultGroqClient(apiKey: string): LlmClient {
       config?: LlmCallConfig,
       userId?: string,
     ): Promise<{ data: T }> {
-      const client = new Groq({ apiKey });
+      const client = makeSdk(apiKey);
       const groqMessages = mapToGroqMessages(messages);
-      const request = buildGroqRequest(outputSchema, groqMessages, config, userId);
+      const request = buildGroqRequest(outputSchema, groqMessages, config, userId, defaults);
 
       const createWithRetry = async (remaining: number): Promise<{ data: T }> => {
         try {
@@ -186,7 +315,7 @@ export function createDefaultGroqClient(apiKey: string): LlmClient {
           const content = getResponseContent(response);
           return parseJson<T>(content);
         } catch (err) {
-          if (shouldRetry(err, remaining)) {
+          if (shouldRetry(asGroqApiErrorLike(err), remaining)) {
             return createWithRetry(remaining - 1);
           }
           throw err;

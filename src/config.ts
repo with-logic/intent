@@ -10,7 +10,7 @@ export const CONFIG = {
     DEFAULT_MODEL: string("GROQ_DEFAULT_MODEL", { default: "openai/gpt-oss-20b" }),
     DEFAULT_TEMPERATURE: number("GROQ_DEFAULT_TEMPERATURE", { default: 0, min: 0, max: 1 }),
   },
-  RERANKER: {
+  INTENT: {
     MODEL: string("INTENT_MODEL", { default: "openai/gpt-oss-20b" }),
     TIMEOUT_MS: int("INTENT_TIMEOUT_MS", { default: 3000, min: 1 }),
     RELEVANCY_THRESHOLD: int("INTENT_RELEVANCY_THRESHOLD", { default: 0, min: 0, max: 10 }),

@@ -1,8 +1,9 @@
 import { describe, expect, test, vi } from "vitest";
 
-import { Reranker } from "./reranker";
+import { CONFIG } from "./config";
+import { Intent } from "./intent";
 
-import type { LlmClient, LoggerLike, RerankerCandidate, IntentContext } from "./types";
+import type { LlmClient, LoggerLike, IntentCandidate, IntentContext } from "./types";
 
 function makeCtx(overrides: Partial<IntentContext> = {}): IntentContext & {
   llm: LlmClient & { call: ReturnType<typeof vi.fn> };
@@ -24,69 +25,51 @@ function makeCtx(overrides: Partial<IntentContext> = {}): IntentContext & {
   } as any;
 }
 
-describe("Reranker.rerank", () => {
+describe("Intent.rank", () => {
   test("throws when no llm and no GROQ_API_KEY", async () => {
-    const { CONFIG } = await import("./config");
-
-    try {
-      // Mock CONFIG to return empty API key
-      vi.doMock("./config", () => ({
-        CONFIG: {
-          ...CONFIG,
-          GROQ: {
-            ...CONFIG.GROQ,
-            API_KEY: "",
-          },
-        },
-      }));
-
-      // Re-import modules to get mocked config
-      vi.resetModules();
-      const { Reranker: RerankerWithMock } = await import("./reranker");
-
-      expect(
-        () => new RerankerWithMock<RerankerCandidate>({} as any, { key: (c) => c.key }),
-      ).toThrow(/No LLM client provided/);
-    } finally {
-      vi.doUnmock("./config");
-      vi.resetModules();
-    }
+    const configOverride = {
+      ...CONFIG,
+      GROQ: { ...CONFIG.GROQ, API_KEY: "" },
+    } as typeof CONFIG;
+    expect(
+      () => new Intent<IntentCandidate>({ key: (c) => c.key, config: configOverride }),
+    ).toThrow(/No LLM client provided/);
   });
 
   test("throws when threshold is below 0", async () => {
     const ctx = makeCtx();
     expect(
-      () =>
-        new Reranker<RerankerCandidate>(ctx, { key: (c) => c.key }, { RELEVANCY_THRESHOLD: -1 }),
-    ).toThrow(/RELEVANCY_THRESHOLD must be between 0 and 10/);
+      () => new Intent<IntentCandidate>({ ...ctx, key: (c) => c.key, relevancyThreshold: -1 }),
+    ).toThrow(/relevancyThreshold must be between 0 and 10/);
   });
 
   test("throws when threshold is above 10", async () => {
     const ctx = makeCtx();
     expect(
-      () =>
-        new Reranker<RerankerCandidate>(ctx, { key: (c) => c.key }, { RELEVANCY_THRESHOLD: 11 }),
-    ).toThrow(/RELEVANCY_THRESHOLD must be between 0 and 10/);
+      () => new Intent<IntentCandidate>({ ...ctx, key: (c) => c.key, relevancyThreshold: 11 }),
+    ).toThrow(/relevancyThreshold must be between 0 and 10/);
   });
   test("returns empty list for zero candidates", async () => {
     const ctx = makeCtx();
-    const reranker = new Reranker<RerankerCandidate>(ctx, {
+    const intent = new Intent<IntentCandidate>({
+      ...ctx,
       key: (c) => c.key,
       summary: (c) => c.summary,
     });
-    const res = await reranker.rerank("query", []);
+    const res = await intent.rank("query", []);
     expect(res).toEqual([]);
     expect(ctx.llm.call).not.toHaveBeenCalled();
   });
 
   test("returns input unchanged for single candidate (no LLM call)", async () => {
     const ctx = makeCtx();
-    const reranker = new Reranker<RerankerCandidate>(ctx, {
+    const intent = new Intent<IntentCandidate>({
+      ...ctx,
       key: (c) => c.key,
       summary: (c) => c.summary,
     });
     const input = [{ key: "Only", summary: "s" }];
-    const res = await reranker.rerank("query", input);
+    const res = await intent.rank("query", input);
     expect(res).toEqual(input);
     expect(ctx.llm.call).not.toHaveBeenCalled();
   });
@@ -96,12 +79,13 @@ describe("Reranker.rerank", () => {
     (ctx.llm.call as any).mockResolvedValueOnce({
       data: { A: 10, B: 6.8, C: 0 },
     });
-    const reranker = new Reranker<RerankerCandidate>(ctx, {
+    const intent = new Intent<IntentCandidate>({
+      ...ctx,
       key: (c) => c.key,
       summary: (c) => c.summary,
     });
     const input = ["A", "B", "C"].map((k) => ({ key: k, summary: k }));
-    const res = await reranker.rerank("query", input);
+    const res = await intent.rank("query", input);
     expect(res.map((c) => c.key)).toEqual(["A", "B"]);
     const call = (ctx.llm.call as any).mock.calls[0];
     expect(call[2].timeoutMs).toBe(3000); // default
@@ -110,12 +94,13 @@ describe("Reranker.rerank", () => {
   test("handles non-numeric or missing scores by clamping to 0", async () => {
     const ctx = makeCtx();
     (ctx.llm.call as any).mockResolvedValueOnce({ data: { X: "nope" as any } });
-    const reranker = new Reranker<RerankerCandidate>(ctx, {
+    const intent = new Intent<IntentCandidate>({
+      ...ctx,
       key: (c) => c.key,
       summary: (c) => c.summary,
     });
     const input = ["X", "Y"].map((k) => ({ key: k, summary: k }));
-    const res = await reranker.rerank("query", input);
+    const res = await intent.rank("query", input);
     expect(res).toEqual([]);
   });
 
@@ -124,12 +109,13 @@ describe("Reranker.rerank", () => {
     (ctx.llm.call as any).mockResolvedValueOnce({
       data: { A: -3, B: 11, C: 9.6, D: Number.POSITIVE_INFINITY },
     });
-    const reranker = new Reranker<RerankerCandidate>(ctx, {
+    const intent = new Intent<IntentCandidate>({
+      ...ctx,
       key: (c) => c.key,
       summary: (c) => c.summary,
     });
     const input = ["A", "B", "C", "D"].map((k) => ({ key: k, summary: k }));
-    const res = await reranker.rerank("query", input);
+    const res = await intent.rank("query", input);
     // B clamps to 10, D rounds to 10, keep input order for tie: B before D
     expect(res.map((c) => c.key)).toEqual(["B", "D", "C"]);
   });
@@ -137,7 +123,8 @@ describe("Reranker.rerank", () => {
   test("returns original list on error and logs warning", async () => {
     const ctx = makeCtx();
     (ctx.llm.call as any).mockRejectedValueOnce(new Error("boom"));
-    const reranker = new Reranker<RerankerCandidate>(ctx, {
+    const intent = new Intent<IntentCandidate>({
+      ...ctx,
       key: (c) => c.key,
       summary: (c) => c.summary,
     });
@@ -145,43 +132,69 @@ describe("Reranker.rerank", () => {
       { key: "A", summary: "" },
       { key: "B", summary: "" },
     ];
-    const res = await reranker.rerank("query", input);
+    const res = await intent.rank("query", input);
     expect(res).toEqual(input);
     expect(ctx.logger.warn).toHaveBeenCalled();
   });
 
-  test("uses empty summary when extractor is missing", async () => {
+  test("uses default extractors when both are missing", async () => {
     const ctx = makeCtx();
-    // Return some scores so rerank proceeds
-    (ctx.llm.call as any).mockResolvedValueOnce({ data: { A: 1, B: 0 } });
-    const reranker = new Reranker<RerankerCandidate>(
-      ctx,
-      {
-        key: (c) => c.key,
-        // no summary extractor
-      },
-      { BATCH_SIZE: 10 },
-    );
-    const input: RerankerCandidate[] = [
+    // Return some scores so rank proceeds
+    (ctx.llm.call as any).mockResolvedValueOnce({ data: {} });
+    const intent = new Intent<IntentCandidate>({
+      ...ctx,
+      // no key or summary extractors - will use defaults
+      batchSize: 10,
+    });
+    const input: IntentCandidate[] = [
       { key: "A", summary: "original" },
       { key: "B", summary: "ignored" },
     ];
-    await reranker.rerank("query", input);
+    await intent.rank("query", input);
     const call = (ctx.llm.call as any).mock.calls[0];
     const messages = call[0];
     const userPayload = JSON.parse(messages[1].content);
     const summaries = userPayload.candidate_search_results.map((c: any) => c.summary);
-    expect(summaries).toEqual(["", ""]);
+    // With default extractors, both key and summary will use JSON.stringify
+    expect(summaries.every((s: string) => s.includes("original") || s.includes("ignored"))).toBe(
+      true,
+    );
   });
 
-  test("top-level rerank catch: logs and returns input on unexpected error", async () => {
+  test("uses empty summary when extractor is missing", async () => {
     const ctx = makeCtx();
-    const reranker = new Reranker<RerankerCandidate>(ctx, {
+    // Return some scores so rank proceeds
+    (ctx.llm.call as any).mockResolvedValueOnce({ data: { A: 1, B: 0 } });
+    const intent = new Intent<IntentCandidate>({
+      ...ctx,
+      key: (c) => c.key,
+      // no summary extractor - will use default
+      batchSize: 10,
+    });
+    const input: IntentCandidate[] = [
+      { key: "A", summary: "original" },
+      { key: "B", summary: "ignored" },
+    ];
+    await intent.rank("query", input);
+    const call = (ctx.llm.call as any).mock.calls[0];
+    const messages = call[0];
+    const userPayload = JSON.parse(messages[1].content);
+    const summaries = userPayload.candidate_search_results.map((c: any) => c.summary);
+    // With default summary extractor, will use JSON.stringify
+    expect(summaries.every((s: string) => s.includes("original") || s.includes("ignored"))).toBe(
+      true,
+    );
+  });
+
+  test("top-level rank catch: logs and returns input on unexpected error", async () => {
+    const ctx = makeCtx();
+    const intent = new Intent<IntentCandidate>({
+      ...ctx,
       key: (c) => c.key,
       summary: (c) => c.summary,
     });
     // @ts-ignore override private method to throw to trigger top-level catch
-    reranker.prepareCandidates = () => {
+    intent.prepareCandidates = () => {
       throw new Error("oops");
     };
     const input = [
@@ -189,7 +202,7 @@ describe("Reranker.rerank", () => {
       { key: "B", summary: "" },
       { key: "C", summary: "" },
     ];
-    const res = await reranker.rerank("query", input);
+    const res = await intent.rank("query", input);
     expect(res).toEqual(input);
     expect(ctx.logger.warn).toHaveBeenCalled();
   });
@@ -197,7 +210,8 @@ describe("Reranker.rerank", () => {
   test("passes userId from ctx and allows method override", async () => {
     const ctx = makeCtx({ userId: "ctx-user" });
     (ctx.llm.call as any).mockResolvedValueOnce({ data: { A: 5, B: 5 } });
-    const reranker = new Reranker<RerankerCandidate>(ctx, {
+    const intent = new Intent<IntentCandidate>({
+      ...ctx,
       key: (c) => c.key,
       summary: (c) => c.summary,
     });
@@ -205,7 +219,7 @@ describe("Reranker.rerank", () => {
       { key: "A", summary: "" },
       { key: "B", summary: "" },
     ];
-    await reranker.rerank("query", input, { userId: "call-user" });
+    await intent.rank("query", input, { userId: "call-user" });
     const calls = (ctx.llm.call as any).mock.calls;
     expect(calls[0][3]).toBe("call-user"); // override wins
   });
@@ -213,16 +227,17 @@ describe("Reranker.rerank", () => {
   test("timeout config is forwarded to client", async () => {
     const ctx = makeCtx();
     (ctx.llm.call as any).mockResolvedValueOnce({ data: { A: 5, B: 5 } });
-    const reranker = new Reranker<RerankerCandidate>(
-      ctx,
-      { key: (c) => c.key, summary: (c) => c.summary },
-      { TIMEOUT_MS: 5 },
-    );
+    const intent = new Intent<IntentCandidate>({
+      ...ctx,
+      key: (c) => c.key,
+      summary: (c) => c.summary,
+      timeoutMs: 5,
+    });
     const input = [
       { key: "A", summary: "" },
       { key: "B", summary: "" },
     ];
-    await reranker.rerank("query", input);
+    await intent.rank("query", input);
     const calls = (ctx.llm.call as any).mock.calls;
     expect(calls[0][2].timeoutMs).toBe(5);
   });
@@ -233,18 +248,19 @@ describe("Reranker.rerank", () => {
       .mockResolvedValueOnce({ data: { K2: 10, K0: 7 } })
       .mockResolvedValueOnce({ data: { K7: 10, K6: 9 } });
 
-    const reranker = new Reranker<RerankerCandidate>(
-      ctx,
-      { key: (c) => c.key, summary: (c) => c.summary },
-      { BATCH_SIZE: 5 },
-    );
+    const intent = new Intent<IntentCandidate>({
+      ...ctx,
+      key: (c) => c.key,
+      summary: (c) => c.summary,
+      batchSize: 5,
+    });
 
-    const input: RerankerCandidate[] = Array.from({ length: 10 }).map((_, i) => ({
+    const input: IntentCandidate[] = Array.from({ length: 10 }).map((_, i) => ({
       key: `K${i}`,
       summary: `S${i}`,
     }));
 
-    const out = await reranker.rerank("query", input);
+    const out = await intent.rank("query", input);
     expect(out.map((c) => c.key)).toEqual(["K2", "K0", "K7", "K6"]);
   });
 
@@ -252,18 +268,20 @@ describe("Reranker.rerank", () => {
     const ctx = makeCtx();
     (ctx.llm.call as any).mockResolvedValueOnce({ data: {} }).mockResolvedValueOnce({ data: {} });
 
-    const reranker = new Reranker<RerankerCandidate>(
-      ctx,
-      { key: (c) => c.key, summary: (c) => c.summary },
-      { BATCH_SIZE: 5, TINY_BATCH_FRACTION: 0.2 },
-    );
+    const intent = new Intent<IntentCandidate>({
+      ...ctx,
+      key: (c) => c.key,
+      summary: (c) => c.summary,
+      batchSize: 5,
+      tinyBatchFraction: 0.2,
+    });
 
-    const input: RerankerCandidate[] = Array.from({ length: 7 }).map((_, i) => ({
+    const input: IntentCandidate[] = Array.from({ length: 7 }).map((_, i) => ({
       key: `K${i}`,
       summary: `S${i}`,
     }));
 
-    await reranker.rerank("query", input);
+    await intent.rank("query", input);
     expect((ctx.llm.call as any).mock.calls.length).toBe(2);
   });
 
@@ -271,18 +289,20 @@ describe("Reranker.rerank", () => {
     const ctx = makeCtx();
     (ctx.llm.call as any).mockResolvedValueOnce({ data: {} });
 
-    const reranker = new Reranker<RerankerCandidate>(
-      ctx,
-      { key: (c) => c.key, summary: (c) => c.summary },
-      { BATCH_SIZE: 5, TINY_BATCH_FRACTION: 0.2 },
-    );
+    const intent = new Intent<IntentCandidate>({
+      ...ctx,
+      key: (c) => c.key,
+      summary: (c) => c.summary,
+      batchSize: 5,
+      tinyBatchFraction: 0.2,
+    });
 
-    const input: RerankerCandidate[] = Array.from({ length: 6 }).map((_, i) => ({
+    const input: IntentCandidate[] = Array.from({ length: 6 }).map((_, i) => ({
       key: `K${i}`,
       summary: `S${i}`,
     }));
 
-    await reranker.rerank("query", input);
+    await intent.rank("query", input);
     expect((ctx.llm.call as any).mock.calls.length).toBe(1);
   });
 
@@ -292,18 +312,19 @@ describe("Reranker.rerank", () => {
       .mockResolvedValueOnce({ data: { K1: 10, K0: 9 } })
       .mockRejectedValueOnce(new Error("boom"));
 
-    const reranker = new Reranker<RerankerCandidate>(
-      ctx,
-      { key: (c) => c.key, summary: (c) => c.summary },
-      { BATCH_SIZE: 3 },
-    );
+    const intent = new Intent<IntentCandidate>({
+      ...ctx,
+      key: (c) => c.key,
+      summary: (c) => c.summary,
+      batchSize: 3,
+    });
 
-    const input: RerankerCandidate[] = Array.from({ length: 6 }).map((_, i) => ({
+    const input: IntentCandidate[] = Array.from({ length: 6 }).map((_, i) => ({
       key: `K${i}`,
       summary: `S${i}`,
     }));
 
-    const out = await reranker.rerank("query", input);
+    const out = await intent.rank("query", input);
     expect(out.map((c) => c.key)).toEqual(["K1", "K0", "K3", "K4", "K5"]);
     expect((ctx.llm.call as any).mock.calls.length).toBe(2);
   });
@@ -311,16 +332,17 @@ describe("Reranker.rerank", () => {
   test("returns original list when scores payload is null", async () => {
     const ctx = makeCtx();
     (ctx.llm.call as any).mockResolvedValueOnce({ data: null });
-    const reranker = new Reranker<RerankerCandidate>(ctx, {
+    const intent = new Intent<IntentCandidate>({
+      ...ctx,
       key: (c) => c.key,
       summary: (c) => c.summary,
     });
-    const input: RerankerCandidate[] = [
+    const input: IntentCandidate[] = [
       { key: "A", summary: "S" },
       { key: "B", summary: "S" },
     ];
 
-    const out = await reranker.rerank("query", input);
+    const out = await intent.rank("query", input);
     expect(out).toEqual(input);
   });
 
@@ -330,17 +352,18 @@ describe("Reranker.rerank", () => {
       data: { Same: 5, "Same (1)": 5 },
     });
 
-    const reranker = new Reranker<RerankerCandidate>(ctx, {
+    const intent = new Intent<IntentCandidate>({
+      ...ctx,
       key: (c) => c.key,
       summary: (c) => c.summary,
     });
 
-    const input: RerankerCandidate[] = [
+    const input: IntentCandidate[] = [
       { key: "Same", summary: "S0" },
       { key: "Same", summary: "S1" },
     ];
 
-    const out = await reranker.rerank("query", input);
+    const out = await intent.rank("query", input);
     expect(out.map((c) => c.summary)).toEqual(["S0", "S1"]);
   });
 });

@@ -1,5 +1,7 @@
 import type { JSONObject } from "./types";
 
+type IntegerSchema = { type: "integer" };
+
 /**
  * Build a strict JSON schema mapping candidate keys to integer 0-10.
  *
@@ -11,8 +13,10 @@ import type { JSONObject } from "./types";
  * @returns JSON schema object enforcing exact structure of response
  */
 export function buildRelevancySchema(keys: string[]): JSONObject {
-  const properties: Record<string, any> = {};
-  for (const k of keys) properties[k] = { type: "integer" };
+  const properties: Record<string, IntegerSchema> = {};
+  for (const k of keys) {
+    properties[k] = { type: "integer" };
+  }
   return {
     title: "Query / Candidate Relevancy Assessment",
     description: "Map candidate results for a search query to relevancy scores (0-10).",

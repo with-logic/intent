@@ -90,7 +90,12 @@ export async function batchProcess<I, O = I>(
         logger?.warn?.("intent reranker batch failed, preserving original order", {
           error: (error as Error)?.message,
         });
-        return onError ? onError(b, error) : (b as unknown as O[]);
+
+        if (onError) {
+          return onError(b, error);
+        }
+
+        return b as unknown as O[];
       }
     }),
   );

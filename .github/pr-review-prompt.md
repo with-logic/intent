@@ -84,7 +84,7 @@ function process(data: Data | null) {
 
 ### Naming Conventions
 
-- **Classes and Types**: PascalCase (`Reranker`, `LlmClient`)
+- **Classes and Types**: PascalCase (`Intent`, `LlmClient`)
 - **Functions and Variables**: camelCase (`buildMessages`, `candidateKey`)
 - **Constants**: UPPER_SNAKE_CASE (`BATCH_SIZE`, `TIMEOUT_MS`)
 - **Test files**: `*.unit.test.ts` or `*.int.test.ts`

@@ -1,13 +1,21 @@
 import { batchProcess } from "./batches";
 import { CONFIG } from "./config";
+import { DEFAULT_KEY_EXTRACTOR, DEFAULT_SUMMARY_EXTRACTOR } from "./extractors";
 import { clamp } from "./lib/number";
 import { selectLlmClient } from "./llm_client";
 import { buildMessages } from "./messages";
 import { buildRelevancySchema } from "./schema";
 
-import type { JSONObject, RerankerExtractors, IntentContext, LlmClient } from "./types";
-
-type RerankerConfig = typeof CONFIG.RERANKER;
+import type {
+  ChatMessage,
+  JSONObject,
+  IntentOptions,
+  IntentConfig,
+  LlmClient,
+  LlmCallConfig,
+  IntentContext,
+  IntentExtractors,
+} from "./types";
 
 /**
  * LLM-based reranker for arbitrary items.
@@ -15,62 +23,182 @@ type RerankerConfig = typeof CONFIG.RERANKER;
  * Uses a listwise LLM approach to score candidates 0-10 based on relevance to a query,
  * then filters by threshold and returns results sorted by score with stable ordering.
  *
- * @template T - The type of items to rerank
+ * @template T - The type of items to rerank (defaults to any)
  *
  * @example
  * ```typescript
+ * // Simplest: uses defaults and GROQ_API_KEY from environment
+ * const intent = new Intent();
+ * const ranked = await intent.rank("find expense reports", items);
+ *
+ * // With custom extractors
  * type Document = { id: string; title: string; content: string };
+ * const intent = new Intent<Document>({
+ *   key: doc => doc.title,
+ *   summary: doc => doc.content.slice(0, 200),
+ *   relevancyThreshold: 5,
+ *   batchSize: 20
+ * });
  *
- * const reranker = new Reranker<Document>(
- *   { llm: myClient, userId: "user-123" },
- *   {
- *     key: doc => doc.title,
- *     summary: doc => doc.content.slice(0, 200)
- *   },
- *   { RELEVANCY_THRESHOLD: 5, BATCH_SIZE: 20 }
- * );
- *
- * const ranked = await reranker.rerank("find expense reports", documents);
+ * // With custom LLM client
+ * const intent = new Intent<Document>({
+ *   llm: myClient,
+ *   userId: "user-123",
+ *   key: doc => doc.title,
+ *   summary: doc => doc.content.slice(0, 200)
+ * });
  * ```
  */
-export class Reranker<T> {
-  private readonly cfg: RerankerConfig;
+export class Intent<T = any> {
+  private readonly cfg: Required<IntentConfig>;
   private readonly llm: LlmClient;
+  private readonly ctx: IntentContext;
+  private readonly extractors: Required<IntentExtractors<T>>;
+  private readonly env: typeof CONFIG;
 
   /**
-   * Creates a new Reranker instance.
+   * Builds the context object from options.
    *
-   * @param ctx - Context containing LLM client, optional logger, and user ID
-   * @param ctx.llm - Optional LLM client. If omitted, will use Groq client if GROQ_API_KEY is set
-   * @param ctx.logger - Optional logger for warnings and errors
-   * @param ctx.userId - Optional user identifier passed to LLM provider for abuse monitoring
-   * @param extractors - Functions to extract key and summary from items
-   * @param extractors.key - Required function returning a short human-readable identifier
-   * @param extractors.summary - Optional function returning a short description for LLM reasoning
-   * @param overrides - Optional config overrides for model, timeout, threshold, and batch settings
-   * @throws {Error} If no LLM client is provided and GROQ_API_KEY is not set
+   * Constructs an IntentContext with only defined properties to satisfy
+   * TypeScript's exactOptionalPropertyTypes requirement.
+   *
+   * @param options - The options object containing llm, logger, and userId
+   * @returns IntentContext with only defined properties
+   * @private
    */
-  constructor(
-    private readonly ctx: IntentContext,
-    private readonly extractors: RerankerExtractors<T>,
-    overrides: Partial<RerankerConfig> = {},
-  ) {
-    this.cfg = { ...CONFIG.RERANKER, ...overrides };
+  private buildContext(options: IntentOptions<T>): IntentContext {
+    return {
+      ...(options.llm !== undefined && { llm: options.llm }),
+      ...(options.logger !== undefined && { logger: options.logger }),
+      ...(options.userId !== undefined && { userId: options.userId }),
+    };
+  }
 
-    // Validate threshold is in valid range
-    if (this.cfg.RELEVANCY_THRESHOLD < 0 || this.cfg.RELEVANCY_THRESHOLD > 10) {
+  /**
+   * Builds the extractors object from options.
+   *
+   * Uses provided extractors or falls back to generic defaults that work
+   * for any type T via JSON stringification and hashing.
+   *
+   * @param options - The options object containing key and summary extractors
+   * @returns Required extractors with defaults applied
+   * @private
+   */
+  private buildExtractors(options: IntentOptions<T>): Required<IntentExtractors<T>> {
+    return {
+      key: options.key ?? DEFAULT_KEY_EXTRACTOR<T>,
+      summary: options.summary ?? DEFAULT_SUMMARY_EXTRACTOR<T>,
+    };
+  }
+
+  /**
+   * Builds the configuration object from options.
+   *
+   * Merges user-provided options with environment-based CONFIG defaults.
+   *
+   * @param options - The options object containing config overrides
+   * @returns Required config with all values populated
+   * @private
+   */
+  private buildConfig(options: IntentOptions<T>): Required<IntentConfig> {
+    return {
+      model: options.model ?? this.env.INTENT.MODEL,
+      timeoutMs: options.timeoutMs ?? this.env.INTENT.TIMEOUT_MS,
+      relevancyThreshold: options.relevancyThreshold ?? this.env.INTENT.RELEVANCY_THRESHOLD,
+      batchSize: options.batchSize ?? this.env.INTENT.BATCH_SIZE,
+      tinyBatchFraction: options.tinyBatchFraction ?? this.env.INTENT.TINY_BATCH_FRACTION,
+    };
+  }
+
+  /**
+   * Validates the configuration values.
+   *
+   * Ensures relevancyThreshold is within the valid 0-10 range.
+   *
+   * @throws {Error} If relevancyThreshold is not between 0 and 10
+   * @private
+   */
+  private validateConfig(): void {
+    if (this.cfg.relevancyThreshold < 0 || this.cfg.relevancyThreshold > 10) {
       throw new Error(
-        `intent: RELEVANCY_THRESHOLD must be between 0 and 10, got ${this.cfg.RELEVANCY_THRESHOLD}`,
+        `intent: relevancyThreshold must be between 0 and 10, got ${this.cfg.relevancyThreshold}`,
       );
     }
+  }
 
-    const selectedClient = selectLlmClient(ctx);
+  /**
+   * Selects and validates the LLM client.
+   *
+   * Uses the provided client from context or attempts to create a default
+   * Groq client if GROQ_API_KEY is available.
+   *
+   * @returns The selected LLM client
+   * @throws {Error} If no LLM client is provided and GROQ_API_KEY is not set
+   * @private
+   */
+  private selectAndValidateLlmClient(): LlmClient {
+    const selectedClient = selectLlmClient(this.ctx, this.env);
     if (!selectedClient) {
       throw new Error(
-        "intent: No LLM client provided and GROQ_API_KEY not set. Provide ctx.llm or set GROQ_API_KEY.",
+        "intent: No LLM client provided and GROQ_API_KEY not set. Provide options.llm or set GROQ_API_KEY.",
       );
     }
-    this.llm = selectedClient;
+    return selectedClient;
+  }
+
+  /**
+   * Creates a new Intent instance.
+   *
+   * All options are optional with sensible defaults:
+   * - llm: Auto-detected from GROQ_API_KEY environment variable if available
+   * - key: Hash-based string from JSON representation of items
+   * - summary: Pretty-printed JSON of items (2-space indentation for LLM readability)
+   * - Config values: From INTENT_* environment variables or built-in defaults
+   *
+   * @param options - Optional configuration object
+   * @param options.llm - Optional LLM client. If omitted, uses Groq client when GROQ_API_KEY is set
+   * @param options.logger - Optional logger for warnings and errors
+   * @param options.userId - Optional user identifier for LLM provider abuse monitoring
+   * @param options.key - Optional function extracting a short human-readable key from items
+   * @param options.summary - Optional function extracting a short description for LLM reasoning
+   * @param options.model - Optional model name override (default: INTENT_MODEL or "openai/gpt-oss-20b")
+   * @param options.timeoutMs - Optional timeout in milliseconds (default: INTENT_TIMEOUT_MS or 3000)
+   * @param options.relevancyThreshold - Optional minimum score 0-10 to include results (default: INTENT_RELEVANCY_THRESHOLD or 0)
+   * @param options.batchSize - Optional number of candidates per LLM call (default: INTENT_BATCH_SIZE or 20)
+   * @param options.tinyBatchFraction - Optional threshold for merging small batches (default: INTENT_TINY_BATCH_FRACTION or 0.2)
+   * @throws {Error} If no LLM client is provided and GROQ_API_KEY is not set
+   * @throws {Error} If relevancyThreshold is not between 0 and 10
+   *
+   * @example
+   * ```typescript
+   * // Minimal - uses all defaults
+   * const intent = new Intent();
+   *
+   * // With extractors
+   * const intent = new Intent<Doc>({
+   *   key: doc => doc.title,
+   *   summary: doc => doc.content
+   * });
+   *
+   * // Full configuration
+   * const intent = new Intent<Doc>({
+   *   llm: myClient,
+   *   userId: "org-123",
+   *   key: doc => doc.title,
+   *   summary: doc => doc.content,
+   *   relevancyThreshold: 5,
+   *   batchSize: 20
+   * });
+   * ```
+   */
+  constructor(options: IntentOptions<T> & { config?: typeof CONFIG } = {}) {
+    this.env = options.config ?? CONFIG;
+    this.ctx = this.buildContext(options);
+    this.extractors = this.buildExtractors(options);
+    this.cfg = this.buildConfig(options);
+
+    this.validateConfig();
+    this.llm = this.selectAndValidateLlmClient();
   }
 
   /**
@@ -97,7 +225,7 @@ export class Reranker<T> {
    *
    * @example
    * ```typescript
-   * const results = await reranker.rerank(
+   * const results = await intent.rank(
    *   "quarterly expense reports from 2024",
    *   allDocuments,
    *   { userId: "session-abc" }
@@ -105,7 +233,7 @@ export class Reranker<T> {
    * // Returns only documents with score > threshold, sorted by relevance
    * ```
    */
-  public async rerank(query: string, candidates: T[], options?: { userId?: string }): Promise<T[]> {
+  public async rank(query: string, candidates: T[], options?: { userId?: string }): Promise<T[]> {
     try {
       if (candidates.length === 0) return [];
       if (candidates.length === 1) return candidates;
@@ -113,8 +241,8 @@ export class Reranker<T> {
       const prepared = this.prepareCandidates(candidates);
       return await batchProcess(
         prepared,
-        this.cfg.BATCH_SIZE,
-        this.cfg.TINY_BATCH_FRACTION,
+        this.cfg.batchSize,
+        this.cfg.tinyBatchFraction,
         (batch) => this.processBatch(query, batch, options?.userId),
         this.ctx.logger,
         (batch) => batch.map(({ item }) => item),
@@ -147,7 +275,7 @@ export class Reranker<T> {
       item,
       idx,
       baseKey: this.extractors.key(item),
-      summary: this.extractors.summary?.(item) ?? "",
+      summary: this.extractors.summary(item),
     }));
   }
 
@@ -188,7 +316,7 @@ export class Reranker<T> {
   private buildRequest(
     query: string,
     items: Array<{ key: string; summary: string }>,
-  ): { schema: JSONObject; messages: any[] } {
+  ): { schema: JSONObject; messages: ChatMessage[] } {
     const keys = items.map((x) => x.key);
     const schema: JSONObject = buildRelevancySchema(keys);
     const messages = buildMessages(query, items);
@@ -208,14 +336,19 @@ export class Reranker<T> {
    * @private
    */
   private async fetchScores(
-    messages: any[],
+    messages: ChatMessage[],
     schema: JSONObject,
     userId?: string,
   ): Promise<Record<string, number> | null> {
+    const config: LlmCallConfig = {
+      model: this.cfg.model,
+      temperature: 0,
+      timeoutMs: this.cfg.timeoutMs,
+    };
     const { data } = await this.llm.call<Record<string, number>>(
       messages,
       schema,
-      { model: this.cfg.MODEL, temperature: 0, timeoutMs: this.cfg.TIMEOUT_MS },
+      config,
       userId ?? this.ctx.userId,
     );
 
@@ -239,11 +372,11 @@ export class Reranker<T> {
     items: Array<{ item: T; idx: number; key: string; summary: string }>,
     scores: Record<string, number>,
   ): T[] {
-    const threshold = this.cfg.RELEVANCY_THRESHOLD;
+    const threshold = this.cfg.relevancyThreshold;
     const scored = items.map(({ item, idx, key }) => ({
       item,
       idx,
-      score: clamp((scores as any)[key], 0, 10),
+      score: clamp(scores[key] ?? 0, 0, 10),
     }));
 
     const filtered = scored.filter(({ score }) => score > threshold);
