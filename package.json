@@ -1,6 +1,6 @@
 {
   "name": "@with-logic/intent",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": false,
   "description": "Intent: a small, well-typed LLM-based reranker.",
   "keywords": [
@@ -22,6 +22,9 @@
   "homepage": "https://github.com/with-logic/intent#readme",
   "publishConfig": {
     "access": "public"
+  },
+  "engines": {
+    "node": ">=18"
   },
   "type": "module",
   "sideEffects": false,
