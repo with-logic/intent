@@ -69,6 +69,8 @@ export type IntentConfig = {
   relevancyThreshold?: number;
   batchSize?: number;
   tinyBatchFraction?: number;
+  minScore?: number;
+  maxScore?: number;
 };
 
 /**

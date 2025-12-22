@@ -28,7 +28,7 @@ function makeCtx(overrides: Partial<IntentContext> = {}): IntentContext & {
 
 describe("Intent.rank", () => {
   test("candidate evaluation schema defines explanation before score", () => {
-    const schema = buildCandidateEvaluationSchema();
+    const schema = buildCandidateEvaluationSchema(0, 10);
     expect(Object.keys(schema.properties)).toEqual(["explanation", "score"]);
   });
 
@@ -46,14 +46,53 @@ describe("Intent.rank", () => {
     const ctx = makeCtx();
     expect(
       () => new Intent<IntentCandidate>({ ...ctx, key: (c) => c.key, relevancyThreshold: -1 }),
-    ).toThrow(/relevancyThreshold must be between 0 and 10/);
+    ).toThrow(/relevancyThreshold must be between/);
   });
 
   test("throws when threshold is above 10", async () => {
     const ctx = makeCtx();
     expect(
       () => new Intent<IntentCandidate>({ ...ctx, key: (c) => c.key, relevancyThreshold: 11 }),
-    ).toThrow(/relevancyThreshold must be between 0 and 10/);
+    ).toThrow(/relevancyThreshold must be between/);
+  });
+
+  test("throws when maxScore is below minScore", async () => {
+    const ctx = makeCtx();
+    expect(
+      () =>
+        new Intent<IntentCandidate>({
+          ...ctx,
+          key: (c) => c.key,
+          minScore: 5,
+          maxScore: 4,
+        }),
+    ).toThrow(/maxScore must be >= minScore/);
+  });
+
+  test("supports non-0..10 score ranges", async () => {
+    const ctx = makeCtx();
+    (ctx.llm.call as any).mockResolvedValueOnce({
+      data: {
+        A: { explanation: "high", score: 5 },
+        B: { explanation: "low", score: 3 },
+      },
+    });
+
+    const intent = new Intent<IntentCandidate>({
+      ...ctx,
+      key: (c) => c.key,
+      summary: (c) => c.summary,
+      minScore: 2,
+      maxScore: 5,
+      relevancyThreshold: 3,
+    });
+
+    const input = [
+      { key: "A", summary: "" },
+      { key: "B", summary: "" },
+    ];
+    const res = await intent.rank("query", input);
+    expect(res.map((c) => c.key)).toEqual(["A"]);
   });
   test("returns empty list for zero candidates", async () => {
     const ctx = makeCtx();

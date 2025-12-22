@@ -1,11 +1,8 @@
 import { describe, expect, test } from "vitest";
 
-import { CONFIG } from "./config";
 import { Intent } from "./intent";
 
-const hasKey = Boolean(CONFIG.GROQ.API_KEY);
-
-describe.skipIf(!hasKey)("reranker integration", () => {
+describe("reranker integration", () => {
   test.concurrent(
     "reranker end-to-end",
     async () => {

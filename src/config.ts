@@ -14,7 +14,9 @@ export const CONFIG = {
   INTENT: {
     MODEL: string("INTENT_MODEL", { default: "openai/gpt-oss-20b" }),
     TIMEOUT_MS: int("INTENT_TIMEOUT_MS", { default: 3000, min: 1 }),
-    RELEVANCY_THRESHOLD: int("INTENT_RELEVANCY_THRESHOLD", { default: 0, min: 0, max: 10 }),
+    MIN_SCORE: int("INTENT_MIN_SCORE", { default: 0 }),
+    MAX_SCORE: int("INTENT_MAX_SCORE", { default: 10, min: 1 }),
+    RELEVANCY_THRESHOLD: int("INTENT_RELEVANCY_THRESHOLD", { default: 0 }),
     BATCH_SIZE: int("INTENT_BATCH_SIZE", { default: 20, min: 1 }),
     TINY_BATCH_FRACTION: number("INTENT_TINY_BATCH_FRACTION", { default: 0.2, min: 0, max: 1 }),
   },

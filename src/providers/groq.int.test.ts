@@ -42,8 +42,12 @@ describe("groq provider integration", () => {
       { key: "A", summary: "first" },
       { key: "B", summary: "second" },
     ];
-    const schema = buildRelevancySchema(candidates.map((c) => c.key));
-    const messages = buildMessages("choose best", candidates);
+    const schema = buildRelevancySchema(
+      candidates.map((c) => c.key),
+      0,
+      10,
+    );
+    const messages = buildMessages("choose best", candidates, { minScore: 0, maxScore: 10 });
     const { data } = await client.call<Record<string, { explanation: string; score: number }>>(
       messages,
       schema,
@@ -60,26 +64,37 @@ describe("groq provider integration", () => {
     }
   });
 
-  test.concurrent("assigns 0 to unrelated and >0 to related", async () => {
-    const client = createDefaultGroqClient(CONFIG.GROQ.API_KEY);
-    const candidates = [
-      { key: "JS Arrays", summary: "Guide to sorting arrays in JavaScript" },
-      { key: "Banana Bread Recipe", summary: "How to bake banana bread" },
-      { key: "Eiffel Tower History", summary: "Timeline of the Eiffel Tower construction" },
-    ];
-    const schema = buildRelevancySchema(candidates.map((c) => c.key));
-    const messages = buildMessages("Help me with JavaScript array sorting", candidates);
-    const { data } = await client.call<Record<string, { explanation: string; score: number }>>(
-      messages,
-      schema,
-      {
-        timeoutMs: 6000,
-      },
-    );
-    // Related candidate should be > 0
-    expect(data["JS Arrays"]?.score).toBeGreaterThan(0);
-    // Unrelated candidates should be 0
-    expect(data["Banana Bread Recipe"]?.score).toBe(0);
-    expect(data["Eiffel Tower History"]?.score).toBe(0);
-  });
+  test.concurrent(
+    "assigns 0 to unrelated and >0 to related",
+    async () => {
+      const client = createDefaultGroqClient(CONFIG.GROQ.API_KEY);
+      const candidates = [
+        { key: "JS Arrays", summary: "Guide to sorting arrays in JavaScript" },
+        { key: "Banana Bread Recipe", summary: "How to bake banana bread" },
+        { key: "Eiffel Tower History", summary: "Timeline of the Eiffel Tower construction" },
+      ];
+      const schema = buildRelevancySchema(
+        candidates.map((c) => c.key),
+        0,
+        10,
+      );
+      const messages = buildMessages("Help me with JavaScript array sorting", candidates, {
+        minScore: 0,
+        maxScore: 10,
+      });
+      const { data } = await client.call<Record<string, { explanation: string; score: number }>>(
+        messages,
+        schema,
+        {
+          timeoutMs: 10000,
+        },
+      );
+      // Related candidate should be > 0
+      expect(data["JS Arrays"]?.score).toBeGreaterThan(0);
+      // Unrelated candidates should be 0
+      expect(data["Banana Bread Recipe"]?.score).toBe(0);
+      expect(data["Eiffel Tower History"]?.score).toBe(0);
+    },
+    15000,
+  );
 });

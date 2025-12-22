@@ -20,7 +20,7 @@ import type {
 /**
  * LLM-based reranker for arbitrary items.
  *
- * Uses a listwise LLM approach to score candidates 0-10 based on relevance to a query,
+ * Uses a listwise LLM approach to score candidates within a configurable range based on relevance to a query,
  * then filters by threshold and returns results sorted by score with stable ordering.
  *
  * @template T - The type of items to rerank (defaults to any)
@@ -107,21 +107,33 @@ export class Intent<T = any> {
       relevancyThreshold: options.relevancyThreshold ?? this.env.INTENT.RELEVANCY_THRESHOLD,
       batchSize: options.batchSize ?? this.env.INTENT.BATCH_SIZE,
       tinyBatchFraction: options.tinyBatchFraction ?? this.env.INTENT.TINY_BATCH_FRACTION,
+      minScore: options.minScore ?? this.env.INTENT.MIN_SCORE,
+      maxScore: options.maxScore ?? this.env.INTENT.MAX_SCORE,
     };
   }
 
   /**
    * Validates the configuration values.
    *
-   * Ensures relevancyThreshold is within the valid 0-10 range.
+   * Ensures the configured score range is valid and the relevancyThreshold is in range.
    *
-   * @throws {Error} If relevancyThreshold is not between 0 and 10
+   * @throws {Error} If maxScore is below minScore
+   * @throws {Error} If relevancyThreshold is not within [minScore, maxScore]
    * @private
    */
   private validateConfig(): void {
-    if (this.cfg.relevancyThreshold < 0 || this.cfg.relevancyThreshold > 10) {
+    if (this.cfg.maxScore < this.cfg.minScore) {
       throw new Error(
-        `intent: relevancyThreshold must be between 0 and 10, got ${this.cfg.relevancyThreshold}`,
+        `intent: maxScore must be >= minScore, got minScore=${this.cfg.minScore} maxScore=${this.cfg.maxScore}`,
+      );
+    }
+
+    if (
+      this.cfg.relevancyThreshold < this.cfg.minScore ||
+      this.cfg.relevancyThreshold > this.cfg.maxScore
+    ) {
+      throw new Error(
+        `intent: relevancyThreshold must be between ${this.cfg.minScore} and ${this.cfg.maxScore}, got ${this.cfg.relevancyThreshold}`,
       );
     }
   }
@@ -163,11 +175,14 @@ export class Intent<T = any> {
    * @param options.summary - Optional function extracting a short description for LLM reasoning
    * @param options.model - Optional model name override (default: INTENT_MODEL or "openai/gpt-oss-20b")
    * @param options.timeoutMs - Optional timeout in milliseconds (default: INTENT_TIMEOUT_MS or 3000)
-   * @param options.relevancyThreshold - Optional minimum score 0-10 to include results (default: INTENT_RELEVANCY_THRESHOLD or 0)
+   * @param options.relevancyThreshold - Optional minimum score to include results (default: INTENT_RELEVANCY_THRESHOLD)
+   * @param options.minScore - Optional minimum score value (default: INTENT_MIN_SCORE or 0)
+   * @param options.maxScore - Optional maximum score value (default: INTENT_MAX_SCORE or 10)
    * @param options.batchSize - Optional number of candidates per LLM call (default: INTENT_BATCH_SIZE or 20)
    * @param options.tinyBatchFraction - Optional threshold for merging small batches (default: INTENT_TINY_BATCH_FRACTION or 0.2)
    * @throws {Error} If no LLM client is provided and GROQ_API_KEY is not set
-   * @throws {Error} If relevancyThreshold is not between 0 and 10
+   * @throws {Error} If maxScore is below minScore
+   * @throws {Error} If relevancyThreshold is not within [minScore, maxScore]
    *
    * @example
    * ```typescript
@@ -347,7 +362,7 @@ export class Intent<T = any> {
   /**
    * Build the JSON schema and chat messages payload for the LLM.
    *
-   * Creates a strict JSON schema requiring one integer property (0-10) per candidate key,
+   * Creates a strict JSON schema requiring one integer property (minScore-maxScore) per candidate key,
    * and constructs system + user messages instructing the LLM to score relevance.
    *
    * @param query - The search query to evaluate candidates against
@@ -360,8 +375,11 @@ export class Intent<T = any> {
     items: Array<{ key: string; summary: string }>,
   ): { schema: JSONObject; messages: ChatMessage[] } {
     const keys = items.map((x) => x.key);
-    const schema: JSONObject = buildRelevancySchema(keys);
-    const messages = buildMessages(query, items);
+    const schema: JSONObject = buildRelevancySchema(keys, this.cfg.minScore, this.cfg.maxScore);
+    const messages = buildMessages(query, items, {
+      minScore: this.cfg.minScore,
+      maxScore: this.cfg.maxScore,
+    });
     return { schema, messages };
   }
 
@@ -401,7 +419,7 @@ export class Intent<T = any> {
   /**
    * Apply relevancy threshold filtering and stable sorting.
    *
-   * Scores are clamped to 0-10 range, then filtered to keep only items with
+   * Scores are clamped to the configured score range, then filtered to keep only items with
    * score > threshold. Results are sorted by score descending, with ties
    * preserving original input order for deterministic results.
    *
@@ -420,7 +438,11 @@ export class Intent<T = any> {
       idx,
       explanation:
         typeof evaluations[key]?.explanation === "string" ? evaluations[key].explanation : "",
-      score: clamp(evaluations[key]?.score ?? 0, 0, 10),
+      score: clamp(
+        evaluations[key]?.score ?? this.cfg.minScore,
+        this.cfg.minScore,
+        this.cfg.maxScore,
+      ),
     }));
 
     const filtered = scored.filter(({ score }) => score > threshold);

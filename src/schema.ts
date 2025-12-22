@@ -38,7 +38,7 @@ export function buildCandidateEvaluationSchema(): CandidateEvaluationSchema {
  *
  * Each candidate key maps to an object containing:
  * - explanation: a short justification of the score
- * - score: an integer 0-10
+ * - score: an integer within the configured range
  *
  * Property order is intentional (`explanation` then `score`) to encourage the
  * model to generate explanations before scores in structured-output modes.
@@ -46,7 +46,11 @@ export function buildCandidateEvaluationSchema(): CandidateEvaluationSchema {
  * @param keys - Array of unique candidate keys
  * @returns JSON schema object enforcing exact structure of response
  */
-export function buildRelevancySchema(keys: string[]): JSONObject {
+export function buildRelevancySchema(
+  keys: string[],
+  minScore: number,
+  maxScore: number,
+): JSONObject {
   const evaluationSchema = buildCandidateEvaluationSchema();
 
   const properties: Record<string, CandidateEvaluationSchema> = {};
@@ -56,8 +60,7 @@ export function buildRelevancySchema(keys: string[]): JSONObject {
 
   return {
     title: "Query / Candidate Relevancy Assessment",
-    description:
-      "Map candidate results for a search query to relevancy scores (0-10) with explanations.",
+    description: `Map candidate results for a search query to relevancy scores (${minScore}-${maxScore}) with explanations.`,
     type: "object",
     properties,
     required: keys,
