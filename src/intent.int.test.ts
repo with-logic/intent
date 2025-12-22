@@ -29,6 +29,35 @@ describe("reranker integration", () => {
   );
 
   test.concurrent(
+    "supports the simplest usage: new Intent() with string items",
+    async () => {
+      const intent = new Intent();
+      const items = ["apple", "banana", "orange", "grape"];
+
+      const ranked = await intent.rank("citrus fruits", items);
+      expect(ranked.length).toBeGreaterThanOrEqual(1);
+      expect(ranked.length).toBeLessThanOrEqual(items.length);
+
+      // Prefer stable assertions that still validate the core behavior.
+      expect(ranked.includes("orange")).toBe(true);
+    },
+    30000,
+  );
+
+  test.concurrent(
+    "supports simplest usage with a different query",
+    async () => {
+      const intent = new Intent();
+      const items = ["tiny", "small", "medium", "large", "huge"];
+
+      const ranked = await intent.rank("size", items);
+      expect(ranked.length).toBeGreaterThanOrEqual(1);
+      expect(ranked.length).toBeLessThanOrEqual(items.length);
+    },
+    30000,
+  );
+
+  test.concurrent(
     "returns empty list when everything is unrelated (threshold > minScore)",
     async () => {
       const intent = new Intent<{ key: string; summary: string }>({
