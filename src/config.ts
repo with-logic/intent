@@ -9,6 +9,7 @@ export const CONFIG = {
     API_KEY: string("GROQ_API_KEY", { default: "" }),
     DEFAULT_MODEL: string("GROQ_DEFAULT_MODEL", { default: "openai/gpt-oss-20b" }),
     DEFAULT_TEMPERATURE: number("GROQ_DEFAULT_TEMPERATURE", { default: 0, min: 0, max: 1 }),
+    JSON_REPAIR_ATTEMPTS: int("GROQ_JSON_REPAIR_ATTEMPTS", { default: 3, min: 0 }),
   },
   INTENT: {
     MODEL: string("INTENT_MODEL", { default: "openai/gpt-oss-20b" }),

@@ -6,9 +6,36 @@ import { buildRelevancySchema } from "../schema";
 
 import { createDefaultGroqClient } from "./groq";
 
-const hasKey = Boolean(CONFIG.GROQ.API_KEY);
+describe("groq provider integration", () => {
+  test.concurrent("repairs server-side schema validation failures", async () => {
+    const client = createDefaultGroqClient(CONFIG.GROQ.API_KEY, {
+      jsonRepairAttempts: 3,
+      defaults: { temperature: 0 },
+    });
 
-describe.skipIf(!hasKey)("groq provider integration", () => {
+    const schema = {
+      type: "object",
+      properties: {
+        A: { type: "string", enum: ["MUST_BE_THIS_EXACT_VALUE"] },
+      },
+      required: ["A"],
+      additionalProperties: false,
+    } as const;
+
+    const messages = [
+      {
+        role: "system",
+        content: 'Return ONLY JSON: {"A": "WRONG_VALUE"}.',
+      },
+    ] as any;
+
+    const { data } = await client.call<Record<string, string>>(messages, schema as any, {
+      timeoutMs: 6000,
+    });
+
+    expect(data.A).toBe("MUST_BE_THIS_EXACT_VALUE");
+  });
+
   test.concurrent("provider returns scores for all schema keys", async () => {
     const client = createDefaultGroqClient(CONFIG.GROQ.API_KEY);
     const candidates = [

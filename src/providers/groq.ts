@@ -32,36 +32,25 @@ type GroqChatCompletionResponse = {
   }>;
 };
 
-type GroqApiErrorLike = {
-  code?: string;
-  error?: {
-    code?: string | undefined;
-  };
-};
-
 /**
- * Narrow an unknown error to the Groq-shaped error payloads we care about.
+ * Return a best-effort nested error record from groq-sdk.
  *
  * @param err - Any thrown value
- * @returns Best-effort Groq error shape for retry decisions
+ * @returns Nested `error` object when present
  * @private
  */
-function asGroqApiErrorLike(err: unknown): GroqApiErrorLike {
+function getNestedErrorObject(err: unknown): Record<string, unknown> | undefined {
   if (err == null || typeof err !== "object") {
-    return {};
+    return undefined;
   }
+
   const record = err as Record<string, unknown>;
   const error = record.error;
-  const errorObj =
-    error != null && typeof error === "object" ? (error as Record<string, unknown>) : undefined;
+  if (error == null || typeof error !== "object") {
+    return undefined;
+  }
 
-  const code = typeof record.code === "string" ? record.code : undefined;
-  const nestedCode = errorObj && typeof errorObj.code === "string" ? errorObj.code : undefined;
-
-  return {
-    ...(code !== undefined && { code }),
-    ...(nestedCode !== undefined && { error: { code: nestedCode } }),
-  };
+  return error as Record<string, unknown>;
 }
 
 /**
@@ -177,25 +166,158 @@ function parseJson<T>(content: string): { data: T } {
   try {
     const data = JSON.parse(content);
     return { data } as { data: T };
-  } catch {
-    throw new Error("Groq returned invalid JSON");
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    const err = new Error(`Groq returned invalid JSON: ${detail}`);
+    (err as Error & { rawOutput?: string }).rawOutput = content;
+    throw err;
   }
 }
 
+type JsonRepairInput = {
+  rawOutput: string;
+  errorMessage: string;
+};
+
+type RetryState = {
+  remaining: number;
+  request: GroqChatCompletionRequest;
+};
+
 /**
- * Determine whether an error warrants a retry based on schema validation.
+ * Build a repair conversation turn to help the model correct invalid JSON.
  *
- * Groq can occasionally return responses that fail JSON schema validation.
- * This function checks for that specific error code and whether retries remain.
+ * We include the raw output and the error message, then remind the model to
+ * return only valid JSON that matches the already-provided schema.
  *
- * @param err - Error object from failed completion
- * @param remaining - Number of retry attempts remaining
- * @returns True if error is retriable and retries remain
+ * @param baseMessages - Original Groq-formatted messages
+ * @param rawOutput - Raw model output that failed parsing
+ * @param errorMessage - Parse/validation error message
+ * @returns New messages array including a repair request
  * @private
  */
-function shouldRetry(err: GroqApiErrorLike, remaining: number): boolean {
-  const code = err.code ?? err.error?.code;
-  return code === "json_validate_failed" && remaining > 1;
+function buildJsonRepairMessages(
+  baseMessages: ChatCompletionMessageParam[],
+  rawOutput: string,
+  errorMessage: string,
+): ChatCompletionMessageParam[] {
+  return [
+    ...baseMessages,
+    { role: "assistant", content: rawOutput } as ChatCompletionMessageParam,
+    {
+      role: "user",
+      content:
+        "Your previous response was invalid JSON or did not match the required JSON schema. " +
+        "Please correct it and return ONLY valid JSON that matches the schema.\n\n" +
+        `Error: ${errorMessage}`,
+    } as ChatCompletionMessageParam,
+  ];
+}
+
+/**
+ * Build a repair request object if we still have attempts remaining.
+ *
+ * @param remaining - Attempts remaining for the overall call
+ * @param request - The current Groq request
+ * @param repair - Repair context
+ * @returns The repaired request and decremented remaining attempts, or undefined
+ * @private
+ */
+function buildRepairRetry(state: RetryState, repair: JsonRepairInput): RetryState | undefined {
+  if (state.remaining <= 1) {
+    return undefined;
+  }
+
+  const repairedRequest: GroqChatCompletionRequest = {
+    ...state.request,
+    messages: buildJsonRepairMessages(
+      state.request.messages,
+      repair.rawOutput,
+      repair.errorMessage,
+    ),
+  };
+
+  return { remaining: state.remaining - 1, request: repairedRequest };
+}
+
+/**
+ * Convert a JSON parse error into a repair input.
+ *
+ * @param rawOutput - Raw model output
+ * @param parseError - JSON.parse error
+ * @returns Repair input
+ * @private
+ */
+function parseErrorToRepairInput(rawOutput: string, parseError: unknown): JsonRepairInput {
+  return { rawOutput, errorMessage: String(parseError) };
+}
+
+/**
+ * Extract raw output from a JSON parse error thrown by parseJson.
+ *
+ * @param error - Error thrown by parseJson
+ * @returns Raw output when present
+ * @private
+ */
+function getRawOutputFromParseJsonError(error: unknown): string | undefined {
+  if (!(error instanceof Error)) {
+    return undefined;
+  }
+
+  const record = error as Error & { rawOutput?: unknown };
+  return typeof record.rawOutput === "string" ? record.rawOutput : undefined;
+}
+
+/**
+ * Extract repair inputs from a Groq schema-validation failure.
+ *
+ * Groq can return a rich error payload for `json_validate_failed`, sometimes
+ * including the model's `generated_response`. We use this to ask the model to
+ * correct its output without re-sending the schema.
+ *
+ * @param err - Unknown thrown error from groq-sdk
+ * @returns Repair inputs when present; otherwise undefined
+ * @private
+ */
+function extractJsonValidateFailedRepairInput(err: unknown): JsonRepairInput | undefined {
+  if (err instanceof Error) {
+    const match = err.message.match(/"failed_generation":"(\{.*?\})"/);
+    const failedGeneration = match?.[1] ? match[1].replace(/\\"/g, '"') : undefined;
+    if (err.message.includes('"code":"json_validate_failed"')) {
+      return {
+        rawOutput:
+          failedGeneration ?? "(Groq did not include the rejected generation in the error payload)",
+        errorMessage: err.message,
+      };
+    }
+  }
+
+  const errorObj = getNestedErrorObject(err);
+  const nested =
+    errorObj && typeof errorObj.error === "object"
+      ? (errorObj.error as Record<string, unknown>)
+      : undefined;
+  const serverError = nested ?? errorObj;
+  if (!serverError) {
+    return undefined;
+  }
+
+  const code = typeof serverError.code === "string" ? serverError.code : undefined;
+  if (code !== "json_validate_failed") {
+    return undefined;
+  }
+
+  const message = typeof serverError.message === "string" ? serverError.message : undefined;
+  const generatedResponse =
+    typeof serverError.generated_response === "string" ? serverError.generated_response : undefined;
+  const failedGeneration =
+    typeof serverError.failed_generation === "string" ? serverError.failed_generation : undefined;
+  const rawOutput = generatedResponse ?? failedGeneration;
+
+  return {
+    rawOutput: rawOutput ?? "(Groq did not include the rejected generation in the error payload)",
+    errorMessage: message ?? String(err),
+  };
 }
 
 /**
@@ -274,6 +396,7 @@ export function createDefaultGroqClient(
   options?: {
     defaults?: { model?: string; temperature?: number };
     makeSdk?: (apiKey: string) => GroqSdkLike;
+    jsonRepairAttempts?: number;
   },
 ): LlmClient {
   const defaults = {
@@ -281,6 +404,7 @@ export function createDefaultGroqClient(
     temperature: options?.defaults?.temperature ?? CONFIG.GROQ.DEFAULT_TEMPERATURE,
   } as const;
   const makeSdk: GroqClientFactory = options?.makeSdk ?? createGroqSdkLike;
+  const jsonRepairAttempts = options?.jsonRepairAttempts ?? CONFIG.GROQ.JSON_REPAIR_ATTEMPTS;
   return {
     /**
      * Call Groq with JSON schema enforced response and return parsed data.
@@ -307,22 +431,41 @@ export function createDefaultGroqClient(
     ): Promise<{ data: T }> {
       const client = makeSdk(apiKey);
       const groqMessages = mapToGroqMessages(messages);
-      const request = buildGroqRequest(outputSchema, groqMessages, config, userId, defaults);
+      const baseRequest = buildGroqRequest(outputSchema, groqMessages, config, userId, defaults);
 
-      const createWithRetry = async (remaining: number): Promise<{ data: T }> => {
+      const createWithRetry = async (state: RetryState): Promise<{ data: T }> => {
         try {
-          const response = await executeCompletion(client, request, config?.timeoutMs);
+          const response = await executeCompletion(client, state.request, config?.timeoutMs);
           const content = getResponseContent(response);
-          return parseJson<T>(content);
+
+          const parsed = parseJson<T>(content);
+          return parsed;
         } catch (err) {
-          if (shouldRetry(asGroqApiErrorLike(err), remaining)) {
-            return createWithRetry(remaining - 1);
+          // If the model returned bad JSON, retry by appending a repair turn.
+          const parseRawOutput = getRawOutputFromParseJsonError(err);
+          if (parseRawOutput !== undefined) {
+            const retry = buildRepairRetry(state, parseErrorToRepairInput(parseRawOutput, err));
+            if (retry) {
+              return createWithRetry(retry);
+            }
+            throw err;
           }
+
+          const validationRepairInput = extractJsonValidateFailedRepairInput(err);
+          if (validationRepairInput) {
+            const retry = buildRepairRetry(state, validationRepairInput);
+            if (retry) {
+              return createWithRetry(retry);
+            }
+          }
+
+          // Non-JSON errors are terminal (quota/outage/etc.).
           throw err;
         }
       };
 
-      return createWithRetry(3);
+      const attempts = Math.max(1, jsonRepairAttempts);
+      return createWithRetry({ remaining: attempts, request: baseRequest });
     },
   } satisfies LlmClient;
 }
