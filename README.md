@@ -2,7 +2,7 @@
   <img src="logo.png" alt="Intent" width="200" />
 </p>
 
-<h1 align="center">Intent</h1>
+<h2 align="center">An LLM-based Reranker Library That Explains Itself</h2>
 
 <p align="center">
   <a href="https://www.npmjs.com/package/@with-logic/intent"><img src="https://img.shields.io/npm/v/@with-logic/intent.svg" alt="npm version"></a>
@@ -11,6 +11,8 @@
   <a href="https://nodejs.org"><img src="https://img.shields.io/node/v/@with-logic/intent.svg" alt="Node.js"></a>
   <a href="https://www.typescriptlang.org/"><img src="https://img.shields.io/badge/TypeScript-5.0+-blue.svg" alt="TypeScript"></a>
 </p>
+
+## Overview
 
 `intent` is an LLM-based reranker library that offers ranking, filtering, and choice all with explicit, inspectable reasoning.
 
