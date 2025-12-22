@@ -5,7 +5,7 @@ import prettier from "eslint-config-prettier";
 import importPlugin from "eslint-plugin-import";
 import globals from "globals";
 
-const ignores = ["dist/**", "node_modules/**", "coverage/**", ".DS_Store"];
+const ignores = ["dist/**", "node_modules/**", "coverage/**", ".DS_Store", "scripts/**"];
 
 export default [
   {
