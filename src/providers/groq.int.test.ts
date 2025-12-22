@@ -70,8 +70,8 @@ describe("groq provider integration", () => {
       const client = createDefaultGroqClient(CONFIG.GROQ.API_KEY);
       const candidates = [
         { key: "JS Arrays", summary: "Guide to sorting arrays in JavaScript" },
-        { key: "Banana Bread Recipe", summary: "How to bake banana bread" },
-        { key: "Eiffel Tower History", summary: "Timeline of the Eiffel Tower construction" },
+        { key: "Saturns Moons", summary: "The chemical composition of Saturn's moons" },
+        { key: "Eiffel Tower", summary: "Directions to the tower" },
       ];
       const schema = buildRelevancySchema(
         candidates.map((c) => c.key),
@@ -92,8 +92,8 @@ describe("groq provider integration", () => {
       // Related candidate should be > 0
       expect(data["JS Arrays"]?.score).toBeGreaterThan(0);
       // Unrelated candidates should be 0
-      expect(data["Banana Bread Recipe"]?.score).toBe(0);
-      expect(data["Eiffel Tower History"]?.score).toBe(0);
+      expect(data["Saturns Moons"]?.score).toBe(0);
+      expect(data["Eiffel Tower"]?.score).toBe(0);
     },
     15000,
   );
