@@ -11,13 +11,13 @@ retrain existing ones.
 ## Install
 
 ```bash
-npm install intent
+npm install @with-logic/intent
 ```
 
 ## Quickstart
 
 ```ts
-import { Intent } from "intent";
+import { Intent } from "@with-logic/intent";
 
 const intent = new Intent({ relevancyThreshold: 1 });
 
@@ -48,7 +48,7 @@ All three support `{ explain: true }` to return explanations.
 Use `rank()` when you want ranked, ordered results.
 
 ```ts
-import { Intent } from "intent";
+import { Intent } from "@with-logic/intent";
 
 type Doc = {
   id: string;
@@ -84,7 +84,7 @@ Use `filter()` when you want to keep the subset of items in a collection that
 are relevant to a query.
 
 ```ts
-import { Intent } from "intent";
+import { Intent } from "@with-logic/intent";
 
 type Tool = {
   name: string;
@@ -121,7 +121,7 @@ const relevantTools = await intent.filter(task, tools, { explain: true });
 Use `choice()` when you need exactly one selection from a set of items.
 
 ```ts
-import { Intent } from "intent";
+import { Intent } from "@with-logic/intent";
 
 type Model = {
   id: string;
