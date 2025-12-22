@@ -1,6 +1,6 @@
 {
   "name": "@with-logic/intent",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": false,
   "description": "Intent: a small, well-typed LLM-based reranker.",
   "keywords": [
