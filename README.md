@@ -1,4 +1,16 @@
-# Intent
+<p align="center">
+  <img src="logo.png" alt="Intent" width="200" />
+</p>
+
+<h1 align="center">Intent</h1>
+
+<p align="center">
+  <a href="https://www.npmjs.com/package/@with-logic/intent"><img src="https://img.shields.io/npm/v/@with-logic/intent.svg" alt="npm version"></a>
+  <a href="https://www.npmjs.com/package/@with-logic/intent"><img src="https://img.shields.io/npm/dm/@with-logic/intent.svg" alt="npm downloads"></a>
+  <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT"></a>
+  <a href="https://nodejs.org"><img src="https://img.shields.io/node/v/@with-logic/intent.svg" alt="Node.js"></a>
+  <a href="https://www.typescriptlang.org/"><img src="https://img.shields.io/badge/TypeScript-5.0+-blue.svg" alt="TypeScript"></a>
+</p>
 
 `intent` is an LLM-based reranker library that offers ranking, filtering, and choice all with explicit, inspectable reasoning.
 
@@ -28,7 +40,33 @@ const docs = [
 ];
 
 const ranked = await intent.rank("exponential backoff retries", docs);
-// => [doc1, doc2] (doc3 is filtered out via relevancy threshold)
+// => [
+//   "To reduce flaky tests, add exponential backoff with jitter to HTTP retries.",
+//   "Many network requests can fail intermittently due to transient issues."
+// ]
+```
+
+### With explanations
+
+Pass `{ explain: true }` to see why each item was ranked:
+
+```ts
+const results = await intent.rank("exponential backoff retries", docs, { explain: true });
+
+for (const { item, explanation } of results) {
+  console.log(`- "${item.slice(0, 50)}..."`);
+  console.log(`  ${explanation}`);
+}
+```
+
+```
+- "To reduce flaky tests, add exponential backoff wit..."
+  This entry explains adding exponential backoff with jitter to HTTP
+  retries, directly addressing the requested technique.
+
+- "Many network requests can fail intermittently due ..."
+  The summary mentions transient failures in network requests, which can
+  motivate using backoff retries but does not describe the method.
 ```
 
 Intent will use a default Groq client when `GROQ_API_KEY` is set.
@@ -71,11 +109,11 @@ const docs: Doc[] = [
 const results = await intent.rank("Find expense reports and anything about spend approvals", docs);
 ```
 
-### Include explanations
+### With explanations
 
 ```ts
 const results = await intent.rank("expense reports", docs, { explain: true });
-// => [{ item: Doc, explanation: string }, ...]
+// => [{ item: Doc, explanation: "Covers Q2 travel and meal expenses..." }, ...]
 ```
 
 ## 2) Tool filtering with `filter()`
@@ -106,14 +144,23 @@ const tools: Tool[] = [
 const task = "Find the customer's last invoice total and email it to them.";
 
 const relevantTools = await intent.filter(task, tools);
-// [sendEmail, runSQL]
+// => [sendEmail, runSQL]
 ```
 
-### Filter with explanations
+### With explanations
 
 ```ts
-const relevantTools = await intent.filter(task, tools, { explain: true });
-// => [{ item: Tool, explanation: string }, ...]
+const results = await intent.filter(task, tools, { explain: true });
+
+for (const { item, explanation } of results) {
+  console.log(`- ${item.name}: ${explanation}`);
+}
+```
+
+```
+- sendEmail: Sending an email is necessary to deliver the invoice total to the customer.
+- runSQL: Running a SQL query against the analytics DB can retrieve the last invoice
+          total needed for the task.
 ```
 
 ## 3) Model routing with `choice()`
@@ -155,7 +202,15 @@ const models: Model[] = [
 const task = "Implement a feature to add retries with exponential backoff and tests.";
 
 const { item: selected, explanation } = await intent.choice(task, models, { explain: true });
-// selected.id => gpt-5.2
+
+console.log(`Selected: ${selected.id}`);
+console.log(`Why: ${explanation}`);
+```
+
+```
+Selected: gpt-5.2
+Why: Feature implementation and testing fall under code generation and
+     refactoring, which gpt-5.2 excels at.
 ```
 
 ## Configuration
@@ -243,8 +298,18 @@ Hard timeout per LLM call.
 - Increase it when you have larger batches, longer summaries, or slower models.
 - Decrease it when you prefer quick fallbacks over waiting.
 
-If we timeout, we never throw an error; instead, we return the original
-results.
+### Error handling
+
+Intent is designed to fail gracefully. On **any** LLM error (timeout, invalid API
+key, rate limit, malformed response), we return items in their original order
+rather than throwing. This ensures your application keeps working even when the
+LLM is unavailable.
+
+- `rank()` → returns all candidates in original order
+- `filter()` → returns all candidates (nothing filtered out)
+- `choice()` → returns the first candidate
+
+When `{ explain: true }` is set, failed calls return empty explanation strings.
 
 #### `INTENT_BATCH_SIZE`
 
