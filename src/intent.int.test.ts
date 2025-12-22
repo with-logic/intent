@@ -2,7 +2,7 @@ import { describe, expect, test } from "vitest";
 
 import { Intent } from "./intent";
 
-describe("reranker integration", () => {
+describe("intent integration", () => {
   const defaultTimeoutMs = 10000;
   const scoreRange = { minScore: 0, maxScore: 10 };
 
@@ -22,8 +22,7 @@ describe("reranker integration", () => {
         { key: "Eiffel Tower", summary: "Directions to the tower" },
       ]);
 
-      expect(out.length).toBeGreaterThanOrEqual(1);
-      expect(out[0]?.key).toBe("JS Arrays");
+      expect(out.map((x) => x.key)).toEqual(["JS Arrays"]);
     },
     30000,
   );
@@ -35,8 +34,7 @@ describe("reranker integration", () => {
       const items = ["apple", "banana", "orange", "grape"];
 
       const ranked = await intent.rank("citrus fruits", items);
-      expect(ranked.length).toBe(1);
-      expect(ranked.includes("orange")).toBe(true);
+      expect(ranked).toEqual(["orange"]);
     },
     30000,
   );
@@ -82,6 +80,7 @@ describe("reranker integration", () => {
         key: (x) => x.key,
         summary: (x) => x.summary,
         timeoutMs: defaultTimeoutMs,
+        // All of these candidates should be obviously relevant, so all should pass a 0 threshold.
         relevancyThreshold: 0,
       });
 
@@ -92,16 +91,8 @@ describe("reranker integration", () => {
       ];
 
       const out = await intent.rank("JavaScript array sorting", input);
-      expect(out.length).toBeGreaterThanOrEqual(1);
 
-      const outputKeys = out.map((x) => x.key);
-      for (const k of outputKeys) {
-        expect(input.some((i) => i.key === k)).toBe(true);
-      }
-
-      if (out.length === input.length) {
-        expect(outputKeys).toEqual(input.map((x) => x.key));
-      }
+      expect(out.map((x) => x.key)).toEqual(["Guide A", "Guide B", "Guide C"]);
     },
     30000,
   );
@@ -125,8 +116,7 @@ describe("reranker integration", () => {
         { explain: true },
       );
 
-      expect(out.length).toBeGreaterThanOrEqual(1);
-      expect(out[0]?.item.key).toBe("JS Arrays");
+      expect(out.map((x) => x.item.key)).toEqual(["JS Arrays"]);
       expect(typeof out[0]?.explanation).toBe("string");
       expect(out[0]?.explanation.length).toBeGreaterThan(0);
     },
@@ -167,12 +157,11 @@ describe("reranker integration", () => {
 
       const out = await intent.rank("JavaScript array sorting", [
         { key: "Café", summary: "Guía para ordenar arrays en JavaScript" },
-        { key: "東京", summary: "JavaScriptで配列をソートする方法" },
+        { key: "東京", summary: "A travel guide to Tokyo neighborhoods" },
         { key: "Banana Bread", summary: "How to bake banana bread" },
       ]);
 
-      expect(out.length).toBeGreaterThanOrEqual(1);
-      expect(["Café", "東京"].includes(out[0]?.key ?? "")).toBe(true);
+      expect(out.map((x) => x.key)).toEqual(["Café"]);
     },
     30000,
   );
@@ -200,9 +189,16 @@ describe("reranker integration", () => {
           key: "Key with spaces\n(and newline)",
           summary: "Examples of sorting arrays in JavaScript",
         },
+        {
+          key: "Unrelated",
+          summary: "How to bake banana bread",
+        },
       ]);
 
-      expect(out.length).toBeGreaterThanOrEqual(1);
+      expect(out.length).toBe(3);
+      expect(out[0]?.key).toBe("Array.sort() / comparator");
+      expect(out.some((x) => x.key === "Stable sort: ties, order")).toBe(true);
+      expect(out.some((x) => x.key === "Key with spaces\n(and newline)")).toBe(true);
     },
     30000,
   );
@@ -223,8 +219,7 @@ describe("reranker integration", () => {
         { key: "Other", summary: "Banana bread recipe" },
       ]);
 
-      expect(out.length).toBeGreaterThanOrEqual(1);
-      expect(out.some((x) => x.key === "Same")).toBe(true);
+      expect(out.map((x) => x.key)).toEqual(["Same", "Same"]);
     },
     30000,
   );
@@ -275,8 +270,12 @@ describe("reranker integration", () => {
       ];
 
       const out = await intent.rank("JavaScript array sorting", candidates);
-      expect(out.length).toBeGreaterThanOrEqual(1);
-      expect(out.length).toBeLessThanOrEqual(candidates.length);
+      expect(out.map((x) => x.key)).toEqual([
+        "Array.sort",
+        "Comparator",
+        "Stable sort",
+        "Quickstart",
+      ]);
     },
     60000,
   );
@@ -302,8 +301,8 @@ describe("reranker integration", () => {
       }));
 
       const out = await intent.rank("JavaScript array sorting", candidates);
-      expect(out.length).toBeGreaterThanOrEqual(1);
-      expect(out.length).toBeLessThanOrEqual(candidates.length);
+      expect(out.length).toBe(5);
+      expect(out.map((x) => x.key)).toEqual(["Doc 1", "Doc 7", "Doc 13", "Doc 19", "Doc 25"]);
     },
     120000,
   );
@@ -326,11 +325,12 @@ describe("reranker integration", () => {
       }));
 
       const out = await intent.rank("JavaScript array sorting", input, { explain: true });
-      expect(out.length).toBeGreaterThanOrEqual(1);
 
+      expect(out.length).toBe(4);
+      expect(out.map((r) => r.item.key)).toEqual(["Item 1", "Item 4", "Item 7", "Item 10"]);
       for (const r of out) {
-        expect(input.some((x) => x.key === r.item.key)).toBe(true);
         expect(typeof r.explanation).toBe("string");
+        expect(r.explanation.length).toBeGreaterThan(0);
       }
     },
     120000,
@@ -355,8 +355,102 @@ describe("reranker integration", () => {
         { userId: "integration-test-user" },
       );
 
-      expect(out.length).toBeGreaterThanOrEqual(1);
+      expect(out.map((x) => x.key)).toEqual(["JS Arrays"]);
     },
     30000,
+  );
+
+  test.concurrent(
+    "filter() returns only relevant items and preserves input order",
+    async () => {
+      const intent = new Intent<{ key: string; summary: string }>({
+        key: (x) => x.key,
+        summary: (x) => x.summary,
+        timeoutMs: defaultTimeoutMs,
+      });
+
+      const input = [
+        { key: "A", summary: "How to bake banana bread" },
+        { key: "B", summary: "Guide to sorting arrays in JavaScript" },
+        { key: "C", summary: "JavaScript Array.prototype.sort examples" },
+        { key: "D", summary: "History of the Eiffel Tower" },
+      ];
+
+      const out = await intent.filter("JavaScript array sorting", input);
+      expect(out.map((x) => x.key)).toEqual(["B", "C"]);
+    },
+    30000,
+  );
+
+  test.concurrent(
+    "filter({ explain: true }) returns aligned explanations",
+    async () => {
+      const intent = new Intent<{ key: string; summary: string }>({
+        key: (x) => x.key,
+        summary: (x) => x.summary,
+        timeoutMs: defaultTimeoutMs,
+      });
+
+      const input = [
+        { key: "JS Arrays", summary: "Guide to sorting arrays in JavaScript" },
+        { key: "Banana Bread", summary: "How to bake banana bread" },
+      ];
+
+      const out = await intent.filter("JavaScript array sorting", input, { explain: true });
+      expect(out.length).toBe(1);
+      expect(out[0]?.item.key).toBe("JS Arrays");
+      expect(typeof out[0]?.explanation).toBe("string");
+      expect(out[0]?.explanation.length).toBeGreaterThan(0);
+    },
+    30000,
+  );
+
+  test.concurrent(
+    "choice() returns exactly one item from the input",
+    async () => {
+      const intent = new Intent<{ key: string; summary: string }>({
+        key: (x) => x.key,
+        summary: (x) => x.summary,
+        timeoutMs: defaultTimeoutMs,
+        batchSize: 2,
+        tinyBatchFraction: 0,
+      });
+
+      const input = [
+        { key: "Banana Bread", summary: "How to bake banana bread" },
+        { key: "JS Arrays", summary: "Guide to sorting arrays in JavaScript" },
+        { key: "Eiffel Tower", summary: "History of the Eiffel Tower" },
+        { key: "Comparator", summary: "How to write a comparator function in JS" },
+      ];
+
+      const winner = await intent.choice("JavaScript array sorting", input);
+      expect(winner.key).toBe("JS Arrays");
+    },
+    60000,
+  );
+
+  test.concurrent(
+    "choice({ explain: true }) returns { item, explanation }",
+    async () => {
+      const intent = new Intent<{ key: string; summary: string }>({
+        key: (x) => x.key,
+        summary: (x) => x.summary,
+        timeoutMs: defaultTimeoutMs,
+        batchSize: 2,
+        tinyBatchFraction: 0,
+      });
+
+      const input = [
+        { key: "Banana Bread", summary: "How to bake banana bread" },
+        { key: "JS Arrays", summary: "Guide to sorting arrays in JavaScript" },
+        { key: "Comparator", summary: "How to write a comparator function in JS" },
+      ];
+
+      const res = await intent.choice("JavaScript array sorting", input, { explain: true });
+      expect(res.item.key).toBe("JS Arrays");
+      expect(typeof res.explanation).toBe("string");
+      expect(res.explanation.length).toBeGreaterThan(0);
+    },
+    60000,
   );
 });

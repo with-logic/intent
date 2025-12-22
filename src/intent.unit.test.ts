@@ -52,7 +52,7 @@ describe("Intent.rank", () => {
   });
 
   test("candidate evaluation schema defines explanation before score", () => {
-    const schema = buildCandidateEvaluationSchema(0, 10);
+    const schema = buildCandidateEvaluationSchema();
     expect(Object.keys(schema.properties)).toEqual(["explanation", "score"]);
   });
 
@@ -614,5 +614,508 @@ describe("Intent.rank", () => {
 
     const out = await intent.rank("query", input);
     expect(out.map((c) => c.summary)).toEqual(["S0", "S1"]);
+  });
+});
+
+describe("Intent.filter", () => {
+  test("returns empty list for zero candidates", async () => {
+    const ctx = makeCtx();
+    const intent = new Intent<IntentCandidate>({
+      ...ctx,
+      key: (c) => c.key,
+      summary: (c) => c.summary,
+    });
+    const res = await intent.filter("query", []);
+    expect(res).toEqual([]);
+    expect(ctx.llm.call).not.toHaveBeenCalled();
+  });
+
+  test("returns input unchanged for single candidate (no LLM call)", async () => {
+    const ctx = makeCtx();
+    const intent = new Intent<IntentCandidate>({
+      ...ctx,
+      key: (c) => c.key,
+      summary: (c) => c.summary,
+    });
+    const input = [{ key: "Only", summary: "s" }];
+    const res = await intent.filter("query", input);
+    expect(res).toEqual(input);
+    expect(ctx.llm.call).not.toHaveBeenCalled();
+  });
+
+  test("with explain=true returns explanation wrapper for single candidate (no LLM call)", async () => {
+    const ctx = makeCtx();
+    const intent = new Intent<IntentCandidate>({
+      ...ctx,
+      key: (c) => c.key,
+      summary: (c) => c.summary,
+    });
+    const input = [{ key: "Only", summary: "s" }];
+    const res = await intent.filter("query", input, { explain: true });
+    expect(res).toEqual([{ item: input[0], explanation: "" }]);
+    expect(ctx.llm.call).not.toHaveBeenCalled();
+  });
+
+  test("filters by boolean decision and preserves input order", async () => {
+    const ctx = makeCtx();
+    (ctx.llm.call as any).mockResolvedValueOnce({
+      data: {
+        A: { explanation: "yes", isRelevant: true },
+        B: { explanation: "no", isRelevant: false },
+        C: { explanation: "yes", isRelevant: true },
+      },
+    });
+
+    const intent = new Intent<IntentCandidate>({
+      ...ctx,
+      key: (c) => c.key,
+      summary: (c) => c.summary,
+    });
+
+    const input = [
+      { key: "A", summary: "" },
+      { key: "B", summary: "" },
+      { key: "C", summary: "" },
+    ];
+
+    const res = await intent.filter("query", input);
+    expect(res.map((x) => x.key)).toEqual(["A", "C"]);
+  });
+
+  test("explain=true returns explanations for kept items", async () => {
+    const ctx = makeCtx();
+    (ctx.llm.call as any).mockResolvedValueOnce({
+      data: {
+        A: { explanation: 123, isRelevant: true },
+        B: { explanation: "no", isRelevant: false },
+      },
+    });
+
+    const intent = new Intent<IntentCandidate>({
+      ...ctx,
+      key: (c) => c.key,
+      summary: (c) => c.summary,
+    });
+
+    const input = [
+      { key: "A", summary: "" },
+      { key: "B", summary: "" },
+    ];
+    const res = await intent.filter("query", input, { explain: true });
+    expect(res).toEqual([{ item: input[0], explanation: "" }]);
+  });
+
+  test("returns original list on error and logs warning", async () => {
+    const ctx = makeCtx();
+    (ctx.llm.call as any).mockRejectedValueOnce(new Error("boom"));
+    const intent = new Intent<IntentCandidate>({
+      ...ctx,
+      key: (c) => c.key,
+      summary: (c) => c.summary,
+    });
+    const input = [
+      { key: "A", summary: "" },
+      { key: "B", summary: "" },
+    ];
+    const res = await intent.filter("query", input);
+    expect(res).toEqual(input);
+    expect(ctx.logger.warn).toHaveBeenCalled();
+  });
+
+  test("on error returns wrapped input when explain=true", async () => {
+    const ctx = makeCtx();
+    (ctx.llm.call as any).mockImplementationOnce(() => Promise.reject(new Error("boom")));
+    const intent = new Intent<IntentCandidate>({
+      ...ctx,
+      key: (c) => c.key,
+      summary: (c) => c.summary,
+    });
+    const input = [
+      { key: "A", summary: "" },
+      { key: "B", summary: "" },
+    ];
+
+    const res = await intent.filter("query", input, { explain: true });
+    expect(res).toEqual([
+      { item: input[0], explanation: "" },
+      { item: input[1], explanation: "" },
+    ]);
+    expect(ctx.logger.warn).toHaveBeenCalled();
+  });
+
+  test("returns original list when LLM response is null", async () => {
+    const ctx = makeCtx();
+    (ctx.llm.call as any).mockResolvedValueOnce({ data: null });
+    const intent = new Intent<IntentCandidate>({
+      ...ctx,
+      key: (c) => c.key,
+      summary: (c) => c.summary,
+    });
+    const input = [
+      { key: "A", summary: "" },
+      { key: "B", summary: "" },
+    ];
+    const res = await intent.filter("query", input);
+    expect(res).toEqual(input);
+  });
+
+  test("passes userId override through filter requests", async () => {
+    const ctx = makeCtx();
+    (ctx.llm.call as any).mockResolvedValueOnce({
+      data: {
+        A: { explanation: "", isRelevant: true },
+        B: { explanation: "", isRelevant: false },
+      },
+    });
+
+    const intent = new Intent<IntentCandidate>({
+      ...ctx,
+      key: (c) => c.key,
+      summary: (c) => c.summary,
+    });
+
+    await intent.filter(
+      "query",
+      [
+        { key: "A", summary: "" },
+        { key: "B", summary: "" },
+      ],
+      { userId: "call-user" },
+    );
+
+    const call = (ctx.llm.call as any).mock.calls[0];
+    expect(call[3]).toBe("call-user");
+  });
+
+  test("with explain=true returns wrapped input on top-level error", async () => {
+    const ctx = makeCtx({ llm: undefined });
+    const configOverride = {
+      ...CONFIG,
+      GROQ: { ...CONFIG.GROQ, API_KEY: "fake" },
+    } as typeof CONFIG;
+
+    const intent = new Intent<IntentCandidate>({
+      ...ctx,
+      config: configOverride,
+      key: (c) => c.key,
+      summary: (c) => c.summary,
+    });
+
+    const input = [
+      { key: "A", summary: "" },
+      { key: "B", summary: "" },
+    ];
+    const res = await intent.filter("query", input, { explain: true });
+    expect(res).toEqual([
+      { item: input[0], explanation: "" },
+      { item: input[1], explanation: "" },
+    ]);
+    expect(ctx.logger.warn).toHaveBeenCalled();
+  });
+});
+
+describe("Intent.choice", () => {
+  test("throws for zero candidates", async () => {
+    const ctx = makeCtx();
+    const intent = new Intent<IntentCandidate>({
+      ...ctx,
+      key: (c) => c.key,
+      summary: (c) => c.summary,
+    });
+
+    await expect(intent.choice("query", [])).rejects.toThrow(/requires at least one candidate/);
+  });
+
+  test("returns single candidate unchanged (no LLM call)", async () => {
+    const ctx = makeCtx();
+    const intent = new Intent<IntentCandidate>({
+      ...ctx,
+      key: (c) => c.key,
+      summary: (c) => c.summary,
+    });
+    const input = [{ key: "Only", summary: "s" }];
+    const res = await intent.choice("query", input);
+    expect(res).toEqual(input[0]);
+    expect(ctx.llm.call).not.toHaveBeenCalled();
+  });
+
+  test("explain=true returns explanation wrapper for single candidate (no LLM call)", async () => {
+    const ctx = makeCtx();
+    const intent = new Intent<IntentCandidate>({
+      ...ctx,
+      key: (c) => c.key,
+      summary: (c) => c.summary,
+    });
+
+    const input = [{ key: "Only", summary: "s" }];
+    const res = await intent.choice("query", input, { explain: true });
+    expect(res).toEqual({ item: input[0], explanation: "" });
+    expect(ctx.llm.call).not.toHaveBeenCalled();
+  });
+
+  test("returns chosen item based on selectedKey", async () => {
+    const ctx = makeCtx();
+    (ctx.llm.call as any).mockResolvedValueOnce({ data: { selectedKey: "B" } });
+
+    const intent = new Intent<IntentCandidate>({
+      ...ctx,
+      key: (c) => c.key,
+      summary: (c) => c.summary,
+      batchSize: 10,
+    });
+
+    const input = [
+      { key: "A", summary: "" },
+      { key: "B", summary: "" },
+      { key: "C", summary: "" },
+    ];
+    const res = await intent.choice("query", input);
+    expect(res.key).toBe("B");
+  });
+
+  test("falls back to first item when LLM returns invalid data", async () => {
+    const ctx = makeCtx();
+    (ctx.llm.call as any).mockResolvedValueOnce({ data: null });
+
+    const intent = new Intent<IntentCandidate>({
+      ...ctx,
+      key: (c) => c.key,
+      summary: (c) => c.summary,
+      batchSize: 10,
+    });
+
+    const input = [
+      { key: "A", summary: "" },
+      { key: "B", summary: "" },
+    ];
+    const res = await intent.choice("query", input);
+    expect(res).toEqual(input[0]);
+  });
+
+  test("falls back to first item when selectedKey is not in the batch", async () => {
+    const ctx = makeCtx();
+    (ctx.llm.call as any).mockResolvedValueOnce({
+      data: { explanation: "x", selectedKey: "Z" },
+    });
+
+    const intent = new Intent<IntentCandidate>({
+      ...ctx,
+      key: (c) => c.key,
+      summary: (c) => c.summary,
+      batchSize: 10,
+    });
+
+    const input = [
+      { key: "A", summary: "" },
+      { key: "B", summary: "" },
+    ];
+    const res = await intent.choice("query", input);
+    expect(res).toEqual(input[0]);
+  });
+
+  test("explain=true returns chosen item with explanation", async () => {
+    const ctx = makeCtx();
+    (ctx.llm.call as any).mockResolvedValueOnce({
+      data: { explanation: "best", selectedKey: "A" },
+    });
+
+    const intent = new Intent<IntentCandidate>({
+      ...ctx,
+      key: (c) => c.key,
+      summary: (c) => c.summary,
+      batchSize: 10,
+    });
+
+    const input = [
+      { key: "A", summary: "" },
+      { key: "B", summary: "" },
+    ];
+    const res = await intent.choice("query", input, { explain: true });
+    expect(res).toEqual({ item: input[0], explanation: "best" });
+  });
+
+  test("uses a tournament strategy when candidates exceed batchSize", async () => {
+    const ctx = makeCtx();
+    (ctx.llm.call as any)
+      .mockResolvedValueOnce({ data: { explanation: "b1", selectedKey: "K1" } })
+      .mockResolvedValueOnce({ data: { explanation: "b2", selectedKey: "K3" } })
+      .mockResolvedValueOnce({ data: { explanation: "final", selectedKey: "K3" } });
+
+    const intent = new Intent<IntentCandidate>({
+      ...ctx,
+      key: (c) => c.key,
+      summary: (c) => c.summary,
+      batchSize: 2,
+    });
+
+    const input: IntentCandidate[] = [
+      { key: "K0", summary: "" },
+      { key: "K1", summary: "" },
+      { key: "K2", summary: "" },
+      { key: "K3", summary: "" },
+    ];
+
+    const res = await intent.choice("query", input);
+    expect(res.key).toBe("K3");
+    expect((ctx.llm.call as any).mock.calls.length).toBe(3);
+  });
+
+  test("does not run a final round when there is only one batch winner", async () => {
+    const ctx = makeCtx();
+    (ctx.llm.call as any).mockResolvedValueOnce({
+      data: { explanation: "b", selectedKey: "K1" },
+    });
+
+    const intent = new Intent<IntentCandidate>({
+      ...ctx,
+      key: (c) => c.key,
+      summary: (c) => c.summary,
+      batchSize: 10,
+    });
+
+    const input: IntentCandidate[] = [
+      { key: "K0", summary: "" },
+      { key: "K1", summary: "" },
+      { key: "K2", summary: "" },
+    ];
+
+    const res = await intent.choice("query", input);
+    expect(res.key).toBe("K1");
+    expect((ctx.llm.call as any).mock.calls.length).toBe(1);
+  });
+
+  test("with explain=true returns the single batch winner without running a final round", async () => {
+    const ctx = makeCtx();
+    (ctx.llm.call as any).mockResolvedValueOnce({
+      data: { explanation: "b", selectedKey: "K1" },
+    });
+
+    const intent = new Intent<IntentCandidate>({
+      ...ctx,
+      key: (c) => c.key,
+      summary: (c) => c.summary,
+      batchSize: 10,
+    });
+
+    const input: IntentCandidate[] = [
+      { key: "K0", summary: "" },
+      { key: "K1", summary: "" },
+      { key: "K2", summary: "" },
+    ];
+
+    const res = await intent.choice("query", input, { explain: true });
+    expect(res).toEqual({ item: input[1], explanation: "b" });
+    expect((ctx.llm.call as any).mock.calls.length).toBe(1);
+  });
+
+  test("with explain=true returns wrapped first item on error", async () => {
+    const ctx = makeCtx();
+    (ctx.llm.call as any).mockImplementationOnce(() => Promise.reject(new Error("boom")));
+
+    const intent = new Intent<IntentCandidate>({
+      ...ctx,
+      key: (c) => c.key,
+      summary: (c) => c.summary,
+      batchSize: 10,
+    });
+
+    const input = [
+      { key: "A", summary: "" },
+      { key: "B", summary: "" },
+    ];
+
+    const res = await intent.choice("query", input, { explain: true });
+    expect(res).toEqual({ item: input[0], explanation: "" });
+    expect(ctx.logger.warn).toHaveBeenCalled();
+  });
+
+  test("passes userId override through choice requests", async () => {
+    const ctx = makeCtx();
+    (ctx.llm.call as any).mockResolvedValueOnce({
+      data: { explanation: "x", selectedKey: "A" },
+    });
+
+    const intent = new Intent<IntentCandidate>({
+      ...ctx,
+      key: (c) => c.key,
+      summary: (c) => c.summary,
+      batchSize: 10,
+    });
+
+    const input = [
+      { key: "A", summary: "" },
+      { key: "B", summary: "" },
+    ];
+
+    await intent.choice("query", input, { userId: "call-user" });
+    const call = (ctx.llm.call as any).mock.calls[0];
+    expect(call[3]).toBe("call-user");
+  });
+
+  test("runs a final round when there are multiple batch winners", async () => {
+    const ctx = makeCtx();
+    (ctx.llm.call as any)
+      .mockResolvedValueOnce({ data: { selectedKey: "K1" } })
+      .mockResolvedValueOnce({ data: { selectedKey: "K2" } })
+      .mockResolvedValueOnce({ data: { selectedKey: "K2" } });
+
+    const intent = new Intent<IntentCandidate>({
+      ...ctx,
+      key: (c) => c.key,
+      summary: (c) => c.summary,
+      batchSize: 2,
+      tinyBatchFraction: 0,
+    });
+
+    const input: IntentCandidate[] = [
+      { key: "K0", summary: "" },
+      { key: "K1", summary: "" },
+      { key: "K2", summary: "" },
+      { key: "K3", summary: "" },
+    ];
+
+    const res = await intent.choice("query", input, { explain: true });
+    expect(res.item.key).toBe("K2");
+    expect((ctx.llm.call as any).mock.calls.length).toBe(3);
+  });
+
+  test("returns the first item when there are no batch winners", async () => {
+    const ctx = makeCtx();
+    (ctx.llm.call as any).mockResolvedValueOnce({ data: { selectedKey: 123 } });
+
+    const intent = new Intent<IntentCandidate>({
+      ...ctx,
+      key: (c) => c.key,
+      summary: (c) => c.summary,
+      batchSize: 10,
+    });
+
+    const input: IntentCandidate[] = [
+      { key: "A", summary: "" },
+      { key: "B", summary: "" },
+    ];
+
+    const res = await intent.choice("query", input);
+    expect(res).toEqual(input[0]);
+  });
+
+  test("on error returns the first item and logs warning", async () => {
+    const ctx = makeCtx();
+    (ctx.llm.call as any).mockImplementationOnce(() => Promise.reject(new Error("boom")));
+
+    const intent = new Intent<IntentCandidate>({
+      ...ctx,
+      key: (c) => c.key,
+      summary: (c) => c.summary,
+      batchSize: 10,
+    });
+
+    const input = [
+      { key: "A", summary: "" },
+      { key: "B", summary: "" },
+    ];
+    const res = await intent.choice("query", input);
+    expect(res).toEqual(input[0]);
+    expect(ctx.logger.warn).toHaveBeenCalled();
   });
 });

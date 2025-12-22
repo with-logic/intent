@@ -3,8 +3,8 @@ import { CONFIG } from "./config";
 import { DEFAULT_KEY_EXTRACTOR, DEFAULT_SUMMARY_EXTRACTOR } from "./extractors";
 import { clamp } from "./lib/number";
 import { selectLlmClient } from "./llm_client";
-import { buildMessages } from "./messages";
-import { buildRelevancySchema } from "./schema";
+import { buildChoiceMessages, buildFilterMessages, buildMessages } from "./messages";
+import { buildChoiceSchema, buildFilterSchema, buildRelevancySchema } from "./schema";
 
 import type {
   ChatMessage,
@@ -326,6 +326,158 @@ export class Intent<T = any> {
   }
 
   /**
+   * Filter candidates based on relevance to a query.
+   *
+   * Calls the LLM to decide whether each candidate is relevant, then returns
+   * only the relevant items in the same order they were provided.
+   *
+   * Explanations are only returned when `options.explain` is true.
+   *
+   * Fast paths:
+   * - Returns [] for 0 candidates without LLM call
+   * - Returns the single candidate unchanged without LLM call
+   *
+   * Error handling:
+   * - On any batch error, preserves that batch's original order
+   * - On top-level error, preserves original order
+   *
+   * @param query - The search query or user intent to filter against
+   * @param candidates - Array of items to filter
+   * @param options - Optional per-call configuration
+   * @param options.explain - When true, return `{ item, explanation }[]` instead of `T[]`
+   * @param options.userId - Optional user ID for this specific call, overrides ctx.userId
+   * @returns Filtered array of items, preserving input order
+   */
+  public async filter(
+    query: string,
+    candidates: T[],
+    options?: { explain?: false; userId?: string },
+  ): Promise<T[]>;
+
+  public async filter(
+    query: string,
+    candidates: T[],
+    options: { explain: true; userId?: string },
+  ): Promise<Array<{ item: T; explanation: string }>>;
+
+  public async filter(
+    query: string,
+    candidates: T[],
+    options?: { explain?: boolean; userId?: string },
+  ): Promise<T[] | Array<{ item: T; explanation: string }>> {
+    if (candidates.length === 0) {
+      return [];
+    }
+
+    if (candidates.length === 1) {
+      if (options?.explain) {
+        const [firstCandidate] = candidates;
+        return [{ item: firstCandidate!, explanation: "" }];
+      }
+      return candidates;
+    }
+
+    const prepared = this.prepareCandidates(candidates);
+
+    const filteredWithExplanations = await batchProcess(
+      prepared,
+      this.cfg.batchSize,
+      this.cfg.tinyBatchFraction,
+      async (batch) =>
+        (await this.processFilterBatch(
+          query,
+          batch,
+          options?.userId !== undefined ? { userId: options.userId } : undefined,
+        )) as Array<{ item: T; explanation: string }>,
+      this.ctx.logger,
+      (batch) => batch.map(({ item }) => ({ item, explanation: "" })),
+    );
+
+    if (options?.explain) {
+      return filteredWithExplanations;
+    }
+
+    return filteredWithExplanations.map(({ item }) => item);
+  }
+
+  /**
+   * Choose exactly one candidate as the best match for a query.
+   *
+   * Uses a tournament strategy when inputs exceed the batch size:
+   * - Choose one from each batch
+   * - Then choose one from the batch winners
+   *
+   * This method always returns a single item.
+   *
+   * @param query - The search query or user intent
+   * @param candidates - Array of items to choose from
+   * @param options - Optional per-call configuration
+   * @param options.explain - When true, return `{ item, explanation }` instead of `T`
+   * @param options.userId - Optional user ID for this specific call, overrides ctx.userId
+   * @returns The single chosen item (or item + explanation)
+   */
+  public async choice(
+    query: string,
+    candidates: T[],
+    options?: { explain?: false; userId?: string },
+  ): Promise<T>;
+
+  public async choice(
+    query: string,
+    candidates: T[],
+    options: { explain: true; userId?: string },
+  ): Promise<{ item: T; explanation: string }>;
+
+  public async choice(
+    query: string,
+    candidates: T[],
+    options?: { explain?: boolean; userId?: string },
+  ): Promise<T | { item: T; explanation: string }> {
+    if (candidates.length === 0) {
+      throw new Error("intent: choice requires at least one candidate");
+    }
+
+    if (candidates.length === 1) {
+      const [firstCandidate] = candidates;
+      if (options?.explain) {
+        return { item: firstCandidate!, explanation: "" };
+      }
+      return firstCandidate!;
+    }
+
+    const prepared = this.prepareCandidates(candidates);
+    const keyed = this.ensureUniqueKeys(prepared);
+
+    const winners = await batchProcess(
+      keyed,
+      this.cfg.batchSize,
+      this.cfg.tinyBatchFraction,
+      async (batch) => [await this.processChoiceBatch(query, batch, options?.userId)],
+      this.ctx.logger,
+      (batch) => [{ item: batch[0]!.item, explanation: "" }],
+    );
+
+    // batchProcess guarantees at least one winner via its per-batch fallback.
+
+    if (winners.length === 1) {
+      const [onlyWinner] = winners;
+      if (options?.explain) {
+        return onlyWinner!;
+      }
+      return onlyWinner!.item;
+    }
+
+    const preparedFinalists = this.prepareCandidates(winners.map((w) => w.item));
+    const keyedFinalists = this.ensureUniqueKeys(preparedFinalists);
+
+    const final = await this.processChoiceBatch(query, keyedFinalists, options?.userId);
+    if (options?.explain) {
+      return final;
+    }
+    return final.item;
+  }
+
+  /**
    * Normalize incoming items into a consistent shape for downstream processing.
    *
    * Extracts the key and summary from each item using the configured extractors,
@@ -397,6 +549,42 @@ export class Intent<T = any> {
   }
 
   /**
+   * Build the JSON schema and chat messages payload for the LLM filter call.
+   *
+   * @param query - The search query to evaluate candidates against
+   * @param items - Candidates with unique keys and summaries
+   * @returns Object containing JSON schema and chat messages array
+   * @private
+   */
+  private buildFilterRequest(
+    query: string,
+    items: Array<{ key: string; summary: string }>,
+  ): { schema: JSONObject; messages: ChatMessage[] } {
+    const keys = items.map((x) => x.key);
+    const schema: JSONObject = buildFilterSchema(keys);
+    const messages = buildFilterMessages(query, items);
+    return { schema, messages };
+  }
+
+  /**
+   * Build the JSON schema and chat messages payload for the LLM choice call.
+   *
+   * @param query - The search query to choose against
+   * @param items - Candidates with unique keys and summaries
+   * @returns Object containing JSON schema and chat messages array
+   * @private
+   */
+  private buildChoiceRequest(
+    query: string,
+    items: Array<{ key: string; summary: string }>,
+  ): { schema: JSONObject; messages: ChatMessage[] } {
+    const keys = items.map((x) => x.key);
+    const schema: JSONObject = buildChoiceSchema(keys);
+    const messages = buildChoiceMessages(query, items);
+    return { schema, messages };
+  }
+
+  /**
    * Invoke the LLM and return the parsed map of candidate scores.
    *
    * Calls the configured LLM client with the messages, JSON schema, model config,
@@ -427,6 +615,144 @@ export class Intent<T = any> {
 
     if (data == null || typeof data !== "object") return null;
     return data as Record<string, { explanation: string; score: number }>;
+  }
+
+  /**
+   * Invoke the LLM and return boolean relevancy decisions.
+   *
+   * @param messages - Chat messages to send
+   * @param schema - Strict JSON schema defining expected response structure
+   * @param userId - Optional user id
+   * @returns Map of candidate keys to filter decisions, or null if invalid
+   * @private
+   */
+  private async fetchFilterDecisions(
+    messages: ChatMessage[],
+    schema: JSONObject,
+    userId?: string,
+  ): Promise<Record<string, { explanation: string; isRelevant: boolean }> | null> {
+    const config: LlmCallConfig = {
+      model: this.resolveModel(),
+      temperature: 0,
+      timeoutMs: this.cfg.timeoutMs,
+    };
+    const { data } = await this.llm.call<
+      Record<string, { explanation: string; isRelevant: boolean }>
+    >(messages, schema, config, userId ?? this.ctx.userId);
+
+    if (data == null || typeof data !== "object") return null;
+    return data as Record<string, { explanation: string; isRelevant: boolean }>;
+  }
+
+  /**
+   * Invoke the LLM and return a single selected key.
+   *
+   * @param messages - Chat messages to send
+   * @param schema - Strict JSON schema defining expected response structure
+   * @param userId - Optional user id
+   * @returns Choice result, or null if invalid
+   * @private
+   */
+  private async fetchChoice(
+    messages: ChatMessage[],
+    schema: JSONObject,
+    userId?: string,
+  ): Promise<{ explanation: string; selectedKey: string } | null> {
+    const config: LlmCallConfig = {
+      model: this.resolveModel(),
+      temperature: 0,
+      timeoutMs: this.cfg.timeoutMs,
+    };
+    const { data } = await this.llm.call<{ explanation: string; selectedKey: string }>(
+      messages,
+      schema,
+      config,
+      userId ?? this.ctx.userId,
+    );
+
+    if (data == null || typeof data !== "object") return null;
+    const record = data as Record<string, unknown>;
+    const explanation = typeof record.explanation === "string" ? record.explanation : "";
+    const selectedKey = typeof record.selectedKey === "string" ? record.selectedKey : "";
+    if (selectedKey === "") return null;
+    return { explanation, selectedKey };
+  }
+
+  /**
+   * Apply boolean filter decisions while preserving input order.
+   *
+   * @param items - Candidates with unique keys
+   * @param decisions - Map of candidate keys to decisions
+   * @returns Filtered items with explanations
+   * @private
+   */
+  private applyFilter(
+    items: Array<{ item: T; idx: number; key: string; summary: string }>,
+    decisions: Record<string, { explanation: string; isRelevant: boolean }>,
+  ): Array<{ item: T; explanation: string }> {
+    const kept: Array<{ item: T; explanation: string }> = [];
+    for (const it of items) {
+      const decision = decisions[it.key];
+      if (decision?.isRelevant === true) {
+        kept.push({
+          item: it.item,
+          explanation: typeof decision.explanation === "string" ? decision.explanation : "",
+        });
+      }
+    }
+    return kept;
+  }
+
+  /**
+   * Process a single batch of candidates through the LLM filter.
+   *
+   * @param query - Query to filter against
+   * @param batch - Prepared candidates
+   * @param options - Optional userId override
+   * @returns Filtered items (stable order), with explanations
+   * @private
+   */
+  private async processFilterBatch(
+    query: string,
+    batch: Array<{ item: T; idx: number; baseKey: string; summary: string }>,
+    options?: { userId?: string },
+  ): Promise<Array<{ item: T; explanation: string }>> {
+    const keyed = this.ensureUniqueKeys(batch);
+    const { schema, messages } = this.buildFilterRequest(query, keyed);
+    const decisions = await this.fetchFilterDecisions(messages, schema, options?.userId);
+    if (decisions == null) {
+      return keyed.map(({ item }) => ({ item, explanation: "" }));
+    }
+
+    return this.applyFilter(keyed, decisions);
+  }
+
+  /**
+   * Process a batch of candidates and choose a single winner.
+   *
+   * @param query - Query to choose against
+   * @param batch - Candidates with unique keys
+   * @param userId - Optional userId override
+   * @returns Winner item with explanation
+   * @private
+   */
+  private async processChoiceBatch(
+    query: string,
+    batch: Array<{ item: T; idx: number; key: string; summary: string }>,
+    userId?: string,
+  ): Promise<{ item: T; explanation: string }> {
+    const { schema, messages } = this.buildChoiceRequest(query, batch);
+    const choice = await this.fetchChoice(messages, schema, userId);
+    if (choice == null) {
+      return { item: batch[0]!.item, explanation: "" };
+    }
+
+    const winner = batch.find((x) => x.key === choice.selectedKey);
+    if (!winner) {
+      return { item: batch[0]!.item, explanation: choice.explanation };
+    }
+
+    return { item: winner.item, explanation: choice.explanation };
   }
 
   /**
