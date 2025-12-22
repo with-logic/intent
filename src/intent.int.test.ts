@@ -7,7 +7,7 @@ describe("reranker integration", () => {
   const scoreRange = { minScore: 0, maxScore: 10 };
 
   test.concurrent(
-    "ranks obvious match first",
+    "ranks the most relevant candidate first (simple object candidates)",
     async () => {
       const intent = new Intent<{ key: string; summary: string }>({
         key: (x) => x.key,
@@ -29,36 +29,32 @@ describe("reranker integration", () => {
   );
 
   test.concurrent(
-    "supports the simplest usage: new Intent() with string items",
+    "supports defaults: new Intent() ranks plain strings",
     async () => {
       const intent = new Intent();
       const items = ["apple", "banana", "orange", "grape"];
 
       const ranked = await intent.rank("citrus fruits", items);
-      expect(ranked.length).toBeGreaterThanOrEqual(1);
-      expect(ranked.length).toBeLessThanOrEqual(items.length);
-
-      // Prefer stable assertions that still validate the core behavior.
+      expect(ranked.length).toBe(1);
       expect(ranked.includes("orange")).toBe(true);
     },
     30000,
   );
 
   test.concurrent(
-    "supports simplest usage with a different query",
+    "supports defaults: new Intent() accepts arbitrary queries",
     async () => {
       const intent = new Intent();
       const items = ["tiny", "small", "medium", "large", "huge"];
 
       const ranked = await intent.rank("size", items);
-      expect(ranked.length).toBeGreaterThanOrEqual(1);
-      expect(ranked.length).toBeLessThanOrEqual(items.length);
+      expect(ranked).toEqual(["tiny", "small", "medium", "large", "huge"]);
     },
     30000,
   );
 
   test.concurrent(
-    "returns empty list when everything is unrelated (threshold > minScore)",
+    "returns [] when all candidates are unrelated and threshold > minScore",
     async () => {
       const intent = new Intent<{ key: string; summary: string }>({
         key: (x) => x.key,
@@ -80,7 +76,7 @@ describe("reranker integration", () => {
   );
 
   test.concurrent(
-    "preserves input order on ties (or near-ties) between similar candidates",
+    "preserves input order when all candidates are returned",
     async () => {
       const intent = new Intent<{ key: string; summary: string }>({
         key: (x) => x.key,
@@ -111,7 +107,7 @@ describe("reranker integration", () => {
   );
 
   test.concurrent(
-    "explain=true returns item+explanation and filters by threshold",
+    "explain=true returns { item, explanation } and still filters by threshold",
     async () => {
       const intent = new Intent<{ key: string; summary: string }>({
         key: (x) => x.key,
@@ -138,7 +134,7 @@ describe("reranker integration", () => {
   );
 
   test.concurrent(
-    "supports custom extractors over nested objects",
+    "supports custom extractors (nested objects)",
     async () => {
       type Doc = { id: string; meta: { title: string }; body: string };
       const intent = new Intent<Doc>({
@@ -160,7 +156,7 @@ describe("reranker integration", () => {
   );
 
   test.concurrent(
-    "supports unicode keys and summaries",
+    "handles unicode keys and summaries",
     async () => {
       const intent = new Intent<{ key: string; summary: string }>({
         key: (x) => x.key,
@@ -182,7 +178,7 @@ describe("reranker integration", () => {
   );
 
   test.concurrent(
-    "supports keys with punctuation and whitespace",
+    "handles keys with punctuation, whitespace, and newlines",
     async () => {
       const intent = new Intent<{ key: string; summary: string }>({
         key: (x) => x.key,
@@ -212,7 +208,7 @@ describe("reranker integration", () => {
   );
 
   test.concurrent(
-    "disambiguates duplicate keys without failing",
+    "disambiguates duplicate keys",
     async () => {
       const intent = new Intent<{ key: string; summary: string }>({
         key: (x) => x.key,
@@ -234,7 +230,7 @@ describe("reranker integration", () => {
   );
 
   test.concurrent(
-    "supports non-0..10 score ranges",
+    "supports non-default score ranges (minScore/maxScore)",
     async () => {
       const intent = new Intent<{ key: string; summary: string }>({
         key: (x) => x.key,
@@ -257,7 +253,7 @@ describe("reranker integration", () => {
   );
 
   test.concurrent(
-    "handles batching for larger candidate sets",
+    "handles batching across multiple LLM calls",
     async () => {
       const intent = new Intent<{ key: string; summary: string }>({
         key: (x) => x.key,
@@ -286,7 +282,7 @@ describe("reranker integration", () => {
   );
 
   test.concurrent(
-    "stress: ranks with many candidates across batches",
+    "handles larger candidate sets (stress)",
     async () => {
       const intent = new Intent<{ key: string; summary: string }>({
         key: (x) => x.key,
@@ -313,7 +309,7 @@ describe("reranker integration", () => {
   );
 
   test.concurrent(
-    "explain=true stays aligned with items across batching",
+    "explain=true stays aligned with items across batches",
     async () => {
       const intent = new Intent<{ key: string; summary: string }>({
         key: (x) => x.key,
