@@ -14,13 +14,21 @@ import type { LlmClient, IntentContext } from "./types";
  * @param ctx - Context object potentially containing an LLM client
  * @returns Selected LLM client, or undefined if none available
  */
-export function selectLlmClient(ctx: IntentContext): LlmClient | undefined {
+export function selectLlmClient(
+  ctx: IntentContext,
+  config: typeof CONFIG = CONFIG,
+): LlmClient | undefined {
   if (ctx.llm) {
     return ctx.llm;
   }
-  const groqKey = CONFIG.GROQ.API_KEY;
+  const groqKey = config.GROQ.API_KEY;
   if (groqKey && groqKey !== "") {
-    return createDefaultGroqClient(groqKey);
+    return createDefaultGroqClient(groqKey, {
+      defaults: {
+        model: config.GROQ.DEFAULT_MODEL,
+        reasoningEffort: config.GROQ.DEFAULT_REASONING_EFFORT,
+      },
+    });
   }
   return undefined;
 }

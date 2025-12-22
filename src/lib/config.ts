@@ -10,6 +10,7 @@
 
 export type BaseOptions<T> = { default?: T };
 export type RangeOptions = BaseOptions<number> & { min?: number; max?: number };
+export type EnumOptions<T extends readonly string[]> = BaseOptions<T[number]> & { values: T };
 
 function throwRequiredEnvVar(name: string): never {
   throw new Error(`${name} is required.`);
@@ -27,6 +28,23 @@ export function string(name: string, opts?: BaseOptions<string>): string {
     return opts.default;
   }
   return throwRequiredEnvVar(name);
+}
+
+/**
+ * Read an env var as a constrained enum string.
+ *
+ * When set, validates the value is included in opts.values.
+ * When unset, returns opts.default if provided, otherwise throws.
+ */
+export function enumeration<const T extends readonly string[]>(
+  name: string,
+  opts: EnumOptions<T>,
+): T[number] {
+  const value = opts.default !== undefined ? string(name, { default: opts.default }) : string(name);
+  if (opts.values.includes(value)) {
+    return value;
+  }
+  throw new Error(`${name} must be one of: ${opts.values.join(", ")}`);
 }
 
 export function boolean(name: string, opts?: BaseOptions<boolean>): boolean {

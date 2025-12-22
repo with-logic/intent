@@ -1,166 +1,277 @@
 # Intent
 
-LLM-based reranker for arbitrary items. Provide a query and a list of items, Intent asks an LLM to score each item’s relevance (0–10), filters by a configurable threshold, and returns the items ordered by score (stable on ties).
+`intent` is an LLM-based reranker library that offers ranking, filtering, and choice all with explicit, inspectable reasoning.
 
-Highlights
+Unlike black-box models, `intent` generates an explanation alongside every score. This transparency allows for easier debugging and enables you to surface reasoning directly to users.
 
-- Pluggable LLM client interface (Groq/OpenAI/etc.)
-- Stable, safe behavior with fallbacks
-- Strict JSON schema scoring, duplicate-key handling
-- Fully typed TypeScript API with tests
+By being LLM powered, it also offers flexibility and dynamic tunability to
+your ranking logic without needing to come up with custom embedding models or
+retrain existing ones.
 
-How It Works
-
-- Listwise LLM reranker: given a user query and a set of candidate items (each with a short key and optional summary), the LLM sees the query and all candidates together and assigns each a relevance score from 0–10.
-- Intent-aware ranking: the prompt emphasizes the user’s intent, task framing, and constraints (not just surface similarity). Items that best satisfy the intent rise, even when lexical overlap is low.
-- Threshold + stable ordering: scores are filtered by a configurable threshold and returned in descending order; ties preserve original input order.
-- Retriever-agnostic: use with any first-stage retriever (vector, BM25, hybrid) or any arbitrary list of items. Summaries help the LLM reason efficiently within token limits.
-
-Why It Excels At User Intent
-
-- Interprets nuance: weighs the goal behind the query (task, specificity, constraints, entities, and outcome) instead of matching keywords alone.
-- Cross-candidate reasoning: considers all candidates in one pass, comparing which best fulfills the intent relative to the rest.
-- Robust to wording: prioritizes items that truly answer the need, even if phrased differently than the query.
-- Configurable strictness: tune the relevancy threshold to be more selective for high-precision top results.
-
-Best Practices
-
-### Data Quality
-
-- **Keep summaries short and structured**: Include title, 1–2 key facts, entities, dates, and outcomes. Aim for consistent length across items so the LLM compares fairly.
-- **Encode user intent explicitly**: Pass the user's goal, constraints, timeframe, and domain context in the query string you provide to the reranker.
-- **Use helpful metadata**: Incorporate type, tags, author, and dates into the summary string to improve intent alignment.
-
-### Performance & Cost
-
-- **Size the candidate set to fit context**: Start with 50–100 items with concise summaries. Tune `BATCH_SIZE` (or `INTENT_BATCH_SIZE`) to your model's token budget.
-- **Favor determinism for stable ranking**: Run with temperature 0 and a fixed prompt template. Ties are already stable by input order.
-
-### Accuracy & Results
-
-- **Tune selectivity**: Set `RELEVANCY_THRESHOLD` (or `INTENT_RELEVANCY_THRESHOLD`) to emphasize high-precision top results for RAG and QA. Values 0-10 are supported, with 0 including all results.
-- **Optional score fusion**: For even stronger robustness, combine LLM scores with retriever scores (e.g., a weighted sum) when you have them.
-
-### Monitoring
-
-- **Monitor and iterate**: Log query, candidate count, raw/normalized scores, and token usage to fine-tune thresholds and batch sizes.
-
-Install
+## Install
 
 ```bash
-npm install intent
+npm install @with-logic/intent
 ```
 
-Or with yarn:
-
-```bash
-yarn add intent
-```
-
-Configuration
-
-The library reads `.env` automatically when imported. Create a `.env` file in your project root:
-
-```env
-# Required only if not providing ctx.llm
-GROQ_API_KEY=your_groq_api_key_here
-
-# Optional: customize defaults
-INTENT_MODEL=openai/gpt-oss-120b
-INTENT_TIMEOUT_MS=30000
-INTENT_RELEVANCY_THRESHOLD=0
-INTENT_BATCH_SIZE=20
-INTENT_TINY_BATCH_FRACTION=0.15
-```
-
-**Configuration Options:**
-
-- **`GROQ_API_KEY`**: Your Groq API key. Required if not providing a custom `ctx.llm` client.
-- **`INTENT_MODEL`**: LLM model to use for reranking (default: `openai/gpt-oss-20b`). Any Groq-supported model works here.
-- **`INTENT_TIMEOUT_MS`**: Maximum time in milliseconds to wait for LLM responses (default: `3000`). Increase for larger batches or slower models.
-- **`INTENT_RELEVANCY_THRESHOLD`**: Minimum relevance score (0-10) to include in results (default: `0`). Higher values = more selective filtering.
-- **`INTENT_BATCH_SIZE`**: Number of candidates to score per LLM call (default: `20`). Tune based on your model's context window and candidate summary length.
-- **`INTENT_TINY_BATCH_FRACTION`**: Threshold for merging small trailing batches (default: `0.2`). If the last batch is smaller than this fraction of `BATCH_SIZE`, it gets merged with the previous batch to avoid inefficient LLM calls.
-
-Development
-
-- Build: `npm run build` (requires TypeScript)
-- Lint and format: `npm run lint:check` (check) or `npm run lint` (auto-fix)
-- Tests with coverage: `npm test` (uses Vitest + v8 coverage)
-
-Tests
-
-- Co-located alongside source for easy association.
-  - Unit: `src/**/*.unit.test.ts` (100% coverage enforced)
-  - Integration: `src/**/*.int.test.ts` (live Groq; requires `GROQ_API_KEY`)
-- Scripts
-  - `npm run test:unit` — unit tests only
-  - `npm run test:int` — integration tests only (concurrent)
-  - `npm test` — all tests
-  - Optional: set `TEST_SCOPE=unit|int|all` to control scope
-
-Groq default
-
-- Uses `groq-sdk` under the hood. If `GROQ_API_KEY` is set in the environment, you can omit `ctx.llm` and Intent will use a built‑in Groq adapter automatically.
-- Otherwise, provide your own `llm` client via `ctx.llm`.
-
-Config
-
-- Reranker config can be supplied at construction or via environment variables (see Configuration section above for details).
-- The library reads `.env` automatically when imported, so `INTENT_*` keys in your `.env` are honored.
-- Constructor config overrides environment variables for fine-grained control per instance.
-
-Usage
+## Quickstart
 
 ```ts
-import { Reranker } from "intent";
+import { Intent } from "@with-logic/intent";
 
-// Minimal LLM client (adapt your SDK to this shape)
-const llm = {
-  async call(messages, schema, config, userId) {
-    // call your LLM here; must return `{ data: Record<string, number> }`
-    // Example: { data: { "Travel Expenses": 8, "OKR Plan": 2 } }
-    return { data: {} };
-  },
-};
+const intent = new Intent({ relevancyThreshold: 1 });
 
-type Item = { title: string; description: string };
-const reranker = new Reranker<Item>(
-  { llm, userId: "org-123" },
-  {
-    key: (x) => x.title,
-    summary: (x) => x.description,
-  },
-  { relevancyThreshold: 0, batchSize: 20 },
-);
+const docs = [
+  "Many network requests can fail intermittently due to transient issues.",
+  "To reduce flaky tests, add exponential backoff with jitter to HTTP retries.",
+  "Citrus fruits like oranges and lemons are high in vitamin C.",
+];
 
-const ordered = await reranker.rerank("find expense reports", [
-  { title: "Travel Expenses", description: "Q2 reimbursements" },
-  { title: "OKR Plan", description: "Q3 planning" },
-]);
-
-// Or, if GROQ_API_KEY is set in your environment, you can omit `llm`:
-const rerankerWithDefault = new Reranker<Item>(
-  {
-    /* no llm needed here if GROQ_API_KEY is set */
-  },
-  { key: (x) => x.title, summary: (x) => x.description },
-);
+const ranked = await intent.rank("exponential backoff retries", docs);
+// => [doc1, doc2] (doc3 is filtered out via relevancy threshold)
 ```
 
-API
+Intent will use a default Groq client when `GROQ_API_KEY` is set.
 
-- `new Reranker<T>(ctx, extractors, config?)`
-  - `ctx.llm`: LLM client with `call(messages, schema, config, userId)`
-  - `ctx.userId?`: optional user identifier forwarded to provider
-  - `ctx.logger?`: optional logger with `.warn()` (and `.info/.error`)
-  - `extractors.key(item)`: required, short human-readable key
-  - `extractors.summary?(item)`: optional short description
-  - `config`: `{ model, timeoutMs, relevancyThreshold, batchSize, tinyBatchFraction }`
-- `rerank(query, candidates, { userId? })` returns `T[]`
+## Core API
 
-Notes
+- `rank(query, candidates)` → rerank + threshold filter (score-based)
+- `filter(query, candidates)` → keep only relevant items (boolean)
+- `choice(query, candidates)` → choose exactly one best item
 
-- Always returns a list; on any failure, it preserves the original order for the affected batch.
-- Ties keep original order (stable sort by input index).
-- Duplicate keys are internally disambiguated: `"Key (idx)"`.
+All three support `{ explain: true }` to return explanations.
+
+## Example Use Cases
+
+### 1) Ordering search results with `rank()`
+
+Use `rank()` when you want ranked, ordered results.
+
+```ts
+import { Intent } from "@with-logic/intent";
+
+type Doc = {
+  id: string;
+  title: string;
+  body: string;
+  tags: string[];
+};
+
+const intent = new Intent<Doc>({
+  key: (d) => d.id,
+  relevancyThreshold: 5,
+});
+
+const docs: Doc[] = [
+  { id: "1", title: "Q2 expenses", body: "Travel, meals, ...", tags: ["finance"] },
+  { id: "2", title: "OKR planning", body: "Goals for ...", tags: ["strategy"] },
+  { id: "3", title: "Laptop purchases", body: "New laptops ...", tags: ["finance", "it"] },
+];
+
+const results = await intent.rank("Find expense reports and anything about spend approvals", docs);
+```
+
+### Include explanations
+
+```ts
+const results = await intent.rank("expense reports", docs, { explain: true });
+// => [{ item: Doc, explanation: string }, ...]
+```
+
+## 2) Tool filtering with `filter()`
+
+Use `filter()` when you want to keep the subset of items in a collection that
+are relevant to a query.
+
+```ts
+import { Intent } from "@with-logic/intent";
+
+type Tool = {
+  name: string;
+  description: string;
+};
+
+const intent = new Intent<Tool>({
+  key: (t) => t.name,
+  summary: (t) => t.description,
+});
+
+const tools: Tool[] = [
+  { name: "search", description: "Search the web for up-to-date information" },
+  { name: "sendEmail", description: "Send an email to a recipient" },
+  { name: "runSQL", description: "Run a SQL query against the analytics DB" },
+  { name: "createInvoice", description: "Create an invoice for a customer" },
+];
+
+const task = "Find the customer's last invoice total and email it to them.";
+
+const relevantTools = await intent.filter(task, tools);
+// [sendEmail, runSQL]
+```
+
+### Filter with explanations
+
+```ts
+const relevantTools = await intent.filter(task, tools, { explain: true });
+// => [{ item: Tool, explanation: string }, ...]
+```
+
+## 3) Model routing with `choice()`
+
+Use `choice()` when you need exactly one selection from a set of items.
+
+```ts
+import { Intent } from "@with-logic/intent";
+
+type Model = {
+  id: string;
+  strengths: string;
+};
+
+const intent = new Intent<Model>({
+  key: (m) => m.id,
+  summary: (m) => m.strengths,
+});
+
+const models: Model[] = [
+  {
+    id: "gemini-3-pro",
+    strengths: "Hard reasoning, math, complex debugging. Slower but very strong.",
+  },
+  {
+    id: "gpt-5.2",
+    strengths: "Best for code generation, refactors, feature implementation.",
+  },
+  {
+    id: "haiku-4.5"
+    strengths: "Fast and cheap. Good for triage and simple edits.",
+  },
+  {
+    id: "nano-banana-pro",
+    strengths: "Image generation and visual content.",
+  },
+];
+
+const task = "Implement a feature to add retries with exponential backoff and tests.";
+
+const { item: selected, explanation } = await intent.choice(task, models, { explain: true });
+// selected.id => gpt-5.2
+```
+
+## Configuration
+
+Intent reads `.env` automatically when imported.
+
+```env
+GROQ_API_KEY=your_groq_api_key_here
+
+# Optional defaults
+GROQ_DEFAULT_MODEL=openai/gpt-oss-20b
+GROQ_DEFAULT_REASONING_EFFORT=medium
+INTENT_TIMEOUT_MS=3000
+INTENT_MIN_SCORE=0
+INTENT_MAX_SCORE=10
+INTENT_RELEVANCY_THRESHOLD=0
+INTENT_BATCH_SIZE=20
+INTENT_TINY_BATCH_FRACTION=0.2
+```
+
+### How configuration works
+
+- You can configure Intent via **environment variables** (shown above) or via the `Intent` constructor.
+- Constructor options override environment defaults for that instance.
+- Most tuning is a trade-off between **quality**, **latency**, and **cost**.
+
+### Provider + model
+
+#### `GROQ_API_KEY`
+
+If you don't pass a custom `llm` client, Intent will create a default Groq client when this is set.
+
+#### `GROQ_DEFAULT_MODEL`
+
+Sets the model name used by the built-in Groq client.
+
+- Choose a stronger model when you care about nuanced ranking or long candidate summaries.
+- Choose a smaller model when you want lower latency/cost and your candidates are simple.
+
+#### `GROQ_DEFAULT_REASONING_EFFORT`
+
+Controls how much reasoning the model should do (`low | medium | high`).
+
+- `low`: fastest; best for obvious matches.
+- `medium`: good default.
+- `high`: better for subtle intent, but typically slower/more expensive.
+
+### Ranking behavior
+
+#### `INTENT_RELEVANCY_THRESHOLD`
+
+Controls how selective the output is.
+
+- Higher threshold → fewer results (higher precision)
+- Lower threshold → more results (higher recall)
+
+Important: threshold filtering is **strictly greater-than** (`score > threshold`).
+So with the default score range `0..10`:
+
+- `relevancyThreshold=0` keeps scores `1..10`
+- `relevancyThreshold=5` keeps scores `6..10`
+
+#### `INTENT_MIN_SCORE` / `INTENT_MAX_SCORE`
+
+Controls the score range given to the LLM.
+
+- Narrower ranges (e.g. `1..5`) can make scoring easier to calibrate.
+- Wider ranges (e.g. `0..10`) give more resolution for ranking.
+
+Note: Since the is an LLM's judgement, as opposed to an objective measurement,
+scores may not use the full range perfectly and you may seem similar biases
+that you'd see with human raters.
+
+This also means that massive ranges (e.g. `0..1000`) may not yield more
+precise results.
+
+If you change the range, ensure your `relevancyThreshold` stays within it.
+
+### Performance knobs
+
+#### `INTENT_TIMEOUT_MS`
+
+Hard timeout per LLM call.
+
+- Increase it when you have larger batches, longer summaries, or slower models.
+- Decrease it when you prefer quick fallbacks over waiting.
+
+If we timeout, we never throw an error; instead, we return the original
+results.
+
+#### `INTENT_BATCH_SIZE`
+
+How many candidates are evaluated per LLM call.
+
+- Larger batch size → fewer calls (often cheaper/faster), but higher token usage per call.
+- Smaller batch size → more calls (often slower), but each call is smaller.
+
+#### `INTENT_TINY_BATCH_FRACTION`
+
+When the last batch is “too small”, Intent will merge it into the previous batch.
+
+- Increase to avoid tiny extra calls (better latency/cost).
+- Decrease if you frequently run near context limits.
+
+### Programmatic configuration (constructor)
+
+Everything above can be set per instance:
+
+```ts
+import { Intent } from "intent";
+
+const intent = new Intent({
+  timeoutMs: 10_000,
+  batchSize: 25,
+  relevancyThreshold: 3,
+  minScore: 0,
+  maxScore: 10,
+});
+```

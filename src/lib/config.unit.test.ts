@@ -137,4 +137,23 @@ describe("lib/config", () => {
       expect(cfg.number(VAR, { default: 9.9 })).toBeCloseTo(9.9);
     });
   });
+
+  describe("enumeration()", () => {
+    it("returns the env value when it is included in values", () => {
+      process.env[VAR] = "GROQ";
+      expect(cfg.enumeration(VAR, { values: ["GROQ"] as const })).toBe("GROQ");
+    });
+
+    it("returns default when missing", () => {
+      unset(VAR);
+      expect(cfg.enumeration(VAR, { default: "GROQ", values: ["GROQ"] as const })).toBe("GROQ");
+    });
+
+    it("throws when the value is not included in values", () => {
+      process.env[VAR] = "NOPE";
+      expect(() => cfg.enumeration(VAR, { values: ["GROQ"] as const })).toThrow(
+        /must be one of: GROQ/,
+      );
+    });
+  });
 });

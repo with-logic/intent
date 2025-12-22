@@ -50,7 +50,7 @@ Intent is a TypeScript library that uses LLMs to rerank arbitrary items based on
 
 ### Core Reranking Flow
 
-The `Reranker` class orchestrates the entire reranking process:
+The `Intent` class orchestrates the entire ranking process:
 
 1. **Preparation** (`prepareCandidates`): Normalizes items into a consistent shape with key/summary/index
 2. **Batching** (`batchProcess` in batches.ts): Splits candidates into batches, merges tiny trailing batches to avoid inefficient LLM calls
@@ -75,14 +75,16 @@ All config lives in config.ts using lib/config helpers:
 - Environment variables: `INTENT_MODEL`, `INTENT_TIMEOUT_MS`, `INTENT_RELEVANCY_THRESHOLD`, `INTENT_BATCH_SIZE`, `INTENT_TINY_BATCH_FRACTION`
 - Groq-specific: `GROQ_API_KEY`, `GROQ_DEFAULT_MODEL`, `GROQ_DEFAULT_TEMPERATURE`
 - Config is loaded automatically via `dotenv/config` import at top of config.ts
-- Reranker constructor accepts overrides as third parameter
+- Intent constructor accepts options as a single optional object
+
+**Config Naming Convention**: By design, config keys in `CONFIG` use `UPPER_SNAKE_CASE` to mirror their environment variable names (e.g., `CONFIG.INTENT.MODEL` matches `INTENT_MODEL`). The user-facing API uses `camelCase` (e.g., `options.model`). This intentional distinction keeps config keys aligned with environment variables while providing an ergonomic API. Internal code converts between these formats as needed.
 
 ### Key Design Patterns
 
 - **Stable fallbacks**: Any failure (LLM error, timeout, invalid response) returns items in original order
 - **Duplicate key handling**: Internal disambiguation using `"Key (idx)"` suffix
 - **Strict typing**: Uses TypeScript strict mode with `noUncheckedIndexedAccess`, `exactOptionalPropertyTypes`
-- **Generic item support**: Reranker is `Reranker<T>` with user-provided key/summary extractors
+- **Generic item support**: Intent is `Intent<T>` with user-provided key/summary extractors
 - **Zero/one-item fast path**: Avoids LLM calls when unnecessary
 
 ## Testing Strategy
