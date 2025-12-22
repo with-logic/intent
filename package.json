@@ -25,12 +25,14 @@
   },
   "type": "module",
   "sideEffects": false,
-  "main": "dist/index.js",
+  "main": "dist/index.cjs",
+  "module": "dist/index.mjs",
   "types": "dist/index.d.ts",
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
-      "import": "./dist/index.js"
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.cjs"
     }
   },
   "files": [
@@ -38,15 +40,19 @@
   ],
   "scripts": {
     "clean": "rm -rf dist",
-    "build": "tsc -p tsconfig.json",
+    "build": "node scripts/build.mjs",
     "test": "vitest run --coverage",
     "test:unit": "cross-env TEST_SCOPE=unit vitest run --coverage",
     "test:int": "cross-env TEST_SCOPE=int vitest run --coverage",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "eslint . --ext .ts,.tsx --fix && prettier --write .",
     "lint:check": "eslint . --ext .ts,.tsx && prettier --check .",
-    "pre-commit": "npm run typecheck && npm test && npm run build",
-    "prepare": "husky"
+    "pre-commit": "npm run lint && npm run typecheck && npm test && npm run build",
+    "prepare": "husky",
+    "prepublishOnly": "npm run lint:check && npm run typecheck && npm test && npm run build",
+    "release": "npm version patch && npm publish",
+    "release:minor": "npm version minor && npm publish",
+    "release:major": "npm version major && npm publish"
   },
   "dependencies": {
     "dotenv": "^16.4.5",
@@ -58,6 +64,7 @@
     "@typescript-eslint/parser": "^8.7.0",
     "@vitest/coverage-v8": "^2.1.1",
     "cross-env": "^7.0.3",
+    "esbuild": "^0.27.2",
     "eslint": "^9.11.1",
     "eslint-config-prettier": "^9.1.0",
     "eslint-import-resolver-typescript": "^3.6.1",
