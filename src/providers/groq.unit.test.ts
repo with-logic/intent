@@ -59,13 +59,13 @@ describe("groq provider", () => {
   test("defaults come from options.defaults when provided", async () => {
     const callMock = vi.fn(async (req: any) => {
       expect(req.model).toBe("m1");
-      expect(req.temperature).toBe(0.33);
+      expect(req.reasoning_effort).toBe("high");
       return {
         choices: [{ message: { role: "assistant", content: JSON.stringify({ A: 1 }) } }],
       };
     });
     const client = GroqProvider.createDefaultGroqClient("k", {
-      defaults: { model: "m1", temperature: 0.33 },
+      defaults: { model: "m1", reasoningEffort: "high" },
       makeSdk: () => ({ chat: { completions: { create: callMock } } }),
     });
     await client.call([{ role: "user", content: "{}" }], schema as any);
@@ -89,7 +89,7 @@ describe("groq provider", () => {
   test("defaults fall back when options.defaults omitted", async () => {
     const callMock = vi.fn(async (req: any) => {
       expect(typeof req.model).toBe("string");
-      expect(typeof req.temperature).toBe("number");
+      expect(["low", "medium", "high"].includes(req.reasoning_effort)).toBe(true);
       return {
         choices: [{ message: { role: "assistant", content: JSON.stringify({ A: 1 }) } }],
       };

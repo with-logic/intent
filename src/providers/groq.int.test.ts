@@ -10,7 +10,7 @@ describe("groq provider integration", () => {
   test.concurrent("repairs server-side schema validation failures", async () => {
     const client = createDefaultGroqClient(CONFIG.GROQ.API_KEY, {
       jsonRepairAttempts: 3,
-      defaults: { temperature: 0 },
+      defaults: { reasoningEffort: "medium" },
     });
 
     const schema = {

@@ -603,7 +603,7 @@ export class Intent<T = any> {
   ): Promise<Record<string, { explanation: string; score: number }> | null> {
     const config: LlmCallConfig = {
       model: this.resolveModel(),
-      temperature: 0,
+      reasoningEffort: "medium",
       timeoutMs: this.cfg.timeoutMs,
     };
     const { data } = await this.llm.call<Record<string, { explanation: string; score: number }>>(
@@ -633,7 +633,7 @@ export class Intent<T = any> {
   ): Promise<Record<string, { explanation: string; isRelevant: boolean }> | null> {
     const config: LlmCallConfig = {
       model: this.resolveModel(),
-      temperature: 0,
+      reasoningEffort: "medium",
       timeoutMs: this.cfg.timeoutMs,
     };
     const { data } = await this.llm.call<
@@ -660,7 +660,7 @@ export class Intent<T = any> {
   ): Promise<{ explanation: string; selectedKey: string } | null> {
     const config: LlmCallConfig = {
       model: this.resolveModel(),
-      temperature: 0,
+      reasoningEffort: "medium",
       timeoutMs: this.cfg.timeoutMs,
     };
     const { data } = await this.llm.call<{ explanation: string; selectedKey: string }>(

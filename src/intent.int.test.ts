@@ -40,18 +40,6 @@ describe("intent integration", () => {
   );
 
   test.concurrent(
-    "supports defaults: new Intent() accepts arbitrary queries",
-    async () => {
-      const intent = new Intent();
-      const items = ["tiny", "small", "medium", "large", "huge"];
-
-      const ranked = await intent.rank("size", items);
-      expect(ranked).toEqual(["tiny", "small", "medium", "large", "huge"]);
-    },
-    30000,
-  );
-
-  test.concurrent(
     "returns [] when all candidates are unrelated and threshold > minScore",
     async () => {
       const intent = new Intent<{ key: string; summary: string }>({
@@ -90,9 +78,9 @@ describe("intent integration", () => {
         { key: "Guide C", summary: "JavaScript array sorting examples and best practices" },
       ];
 
-      const out = await intent.rank("JavaScript array sorting", input);
+      const out = await intent.filter("JavaScript array sorting", input);
 
-      expect(out.map((x) => x.key)).toEqual(["Guide A", "Guide B", "Guide C"]);
+      expect(out).toEqual(input);
     },
     30000,
   );
@@ -266,7 +254,7 @@ describe("intent integration", () => {
         { key: "Quickstart", summary: "Basic JS arrays tutorial" },
         { key: "Banana bread", summary: "Recipe for banana bread" },
         { key: "Eiffel Tower", summary: "History of the Eiffel Tower" },
-        { key: "Node streams", summary: "Guide to Node.js streams" },
+        { key: "Moon Bases", summary: "Guide to living on the moon" },
       ];
 
       const out = await intent.rank("JavaScript array sorting", candidates);

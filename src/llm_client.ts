@@ -26,7 +26,7 @@ export function selectLlmClient(
     return createDefaultGroqClient(groqKey, {
       defaults: {
         model: config.GROQ.DEFAULT_MODEL,
-        temperature: config.GROQ.DEFAULT_TEMPERATURE,
+        reasoningEffort: config.GROQ.DEFAULT_REASONING_EFFORT,
       },
     });
   }

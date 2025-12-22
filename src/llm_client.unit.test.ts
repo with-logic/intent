@@ -9,7 +9,7 @@ describe("selectLlmClient", () => {
     const selected = selectLlmClient(
       { llm } as any,
       {
-        GROQ: { API_KEY: "k", DEFAULT_MODEL: "m", DEFAULT_TEMPERATURE: 0 },
+        GROQ: { API_KEY: "k", DEFAULT_MODEL: "m", DEFAULT_REASONING_EFFORT: "medium" },
       } as any,
     );
     expect(selected).toBe(llm);
@@ -17,7 +17,7 @@ describe("selectLlmClient", () => {
 
   test("returns undefined when GROQ api key missing", () => {
     const selected = selectLlmClient({}, {
-      GROQ: { API_KEY: "", DEFAULT_MODEL: "m", DEFAULT_TEMPERATURE: 0 },
+      GROQ: { API_KEY: "", DEFAULT_MODEL: "m", DEFAULT_REASONING_EFFORT: "medium" },
     } as any);
     expect(selected).toBeUndefined();
   });
@@ -28,7 +28,7 @@ describe("selectLlmClient", () => {
       .mockImplementation((apiKey, options) => {
         expect(apiKey).toBe("test-key");
         expect(options?.defaults?.model).toBe("test-model");
-        expect(options?.defaults?.temperature).toBe(0.12);
+        expect(options?.defaults?.reasoningEffort).toBe("high");
 
         return {
           call: vi.fn(async (messages: any, schema: any) => ({ data: { A: 1 }, messages, schema })),
@@ -39,7 +39,7 @@ describe("selectLlmClient", () => {
       GROQ: {
         API_KEY: "test-key",
         DEFAULT_MODEL: "test-model",
-        DEFAULT_TEMPERATURE: 0.12,
+        DEFAULT_REASONING_EFFORT: "high",
       },
     };
 

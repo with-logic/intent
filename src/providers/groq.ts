@@ -18,7 +18,7 @@ type GroqJsonSchemaResponseFormat = {
 
 type GroqChatCompletionRequest = {
   model: string;
-  temperature: number;
+  reasoning_effort: "low" | "medium" | "high";
   messages: ChatCompletionMessageParam[];
   user?: string;
   response_format: GroqJsonSchemaResponseFormat;
@@ -77,13 +77,13 @@ function mapToGroqMessages(messages: ChatMessage[]): ChatCompletionMessageParam[
 /**
  * Build the request payload expected by groq-sdk with strict JSON schema.
  *
- * Constructs the complete request object including model, temperature, messages,
+ * Constructs the complete request object including model, reasoning effort, messages,
  * optional user ID, and the response_format configuration that enforces strict
  * JSON schema validation on the model's output.
  *
  * @param outputSchema - JSON schema defining expected response structure
  * @param groqMessages - Formatted chat messages
- * @param config - Optional config overriding model/temperature
+ * @param config - Optional config overriding model and reasoning effort
  * @param userId - Optional user identifier for Groq's abuse monitoring
  * @returns Request payload ready for groq-sdk
  * @private
@@ -93,11 +93,11 @@ function buildGroqRequest(
   groqMessages: ChatCompletionMessageParam[],
   config: LlmCallConfig | undefined,
   userId: string | undefined,
-  defaults: { model: string; temperature: number },
+  defaults: { model: string; reasoningEffort: "low" | "medium" | "high" },
 ): GroqChatCompletionRequest {
   return {
     model: config?.model ?? defaults.model,
-    temperature: config?.temperature ?? defaults.temperature,
+    reasoning_effort: config?.reasoningEffort ?? defaults.reasoningEffort,
     messages: groqMessages,
     ...(userId ? { user: userId } : {}),
     response_format: {
@@ -326,7 +326,7 @@ function extractJsonValidateFailedRepairInput(err: unknown): JsonRepairInput | u
  * Returns an LlmClient implementation that uses the Groq SDK with:
  * - Strict JSON schema enforcement via response_format
  * - Automatic retry on schema validation failures (up to 3 attempts)
- * - Support for custom model, temperature, timeout, and user ID
+ * - Support for custom model, reasoning effort, timeout, and user ID
  *
  * @param apiKey - Groq API key
  * @returns LlmClient implementation for Groq
@@ -394,14 +394,14 @@ export function createGroqSdk(options: { apiKey: string }): unknown {
 export function createDefaultGroqClient(
   apiKey: string,
   options?: {
-    defaults?: { model?: string; temperature?: number };
+    defaults?: { model?: string; reasoningEffort?: "low" | "medium" | "high" };
     makeSdk?: (apiKey: string) => GroqSdkLike;
     jsonRepairAttempts?: number;
   },
 ): LlmClient {
   const defaults = {
     model: options?.defaults?.model ?? CONFIG.GROQ.DEFAULT_MODEL,
-    temperature: options?.defaults?.temperature ?? CONFIG.GROQ.DEFAULT_TEMPERATURE,
+    reasoningEffort: options?.defaults?.reasoningEffort ?? CONFIG.GROQ.DEFAULT_REASONING_EFFORT,
   } as const;
   const makeSdk: GroqClientFactory = options?.makeSdk ?? createGroqSdkLike;
   const jsonRepairAttempts = options?.jsonRepairAttempts ?? CONFIG.GROQ.JSON_REPAIR_ATTEMPTS;
@@ -418,7 +418,7 @@ export function createDefaultGroqClient(
      *
      * @param messages - Chat messages to send to the model
      * @param outputSchema - JSON schema defining expected response structure
-     * @param config - Optional model, temperature, and timeout overrides
+     * @param config - Optional model, reasoning effort, and timeout overrides
      * @param userId - Optional user ID for Groq's abuse monitoring
      * @returns Parsed response data wrapped in { data } object
      * @throws {Error} If all retry attempts fail or response is invalid

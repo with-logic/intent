@@ -12,7 +12,7 @@ export type ChatMessage = {
 
 export type LlmCallConfig = {
   model?: string;
-  temperature?: number;
+  reasoningEffort?: "low" | "medium" | "high";
   timeoutMs?: number;
 };
 

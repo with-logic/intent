@@ -138,20 +138,20 @@ describe("lib/config", () => {
     });
   });
 
-  describe("enumString()", () => {
+  describe("enumeration()", () => {
     it("returns the env value when it is included in values", () => {
       process.env[VAR] = "GROQ";
-      expect(cfg.enumString(VAR, { values: ["GROQ"] as const })).toBe("GROQ");
+      expect(cfg.enumeration(VAR, { values: ["GROQ"] as const })).toBe("GROQ");
     });
 
     it("returns default when missing", () => {
       unset(VAR);
-      expect(cfg.enumString(VAR, { default: "GROQ", values: ["GROQ"] as const })).toBe("GROQ");
+      expect(cfg.enumeration(VAR, { default: "GROQ", values: ["GROQ"] as const })).toBe("GROQ");
     });
 
     it("throws when the value is not included in values", () => {
       process.env[VAR] = "NOPE";
-      expect(() => cfg.enumString(VAR, { values: ["GROQ"] as const })).toThrow(
+      expect(() => cfg.enumeration(VAR, { values: ["GROQ"] as const })).toThrow(
         /must be one of: GROQ/,
       );
     });

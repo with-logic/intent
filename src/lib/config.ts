@@ -36,7 +36,7 @@ export function string(name: string, opts?: BaseOptions<string>): string {
  * When set, validates the value is included in opts.values.
  * When unset, returns opts.default if provided, otherwise throws.
  */
-export function enumString<const T extends readonly string[]>(
+export function enumeration<const T extends readonly string[]>(
   name: string,
   opts: EnumOptions<T>,
 ): T[number] {
