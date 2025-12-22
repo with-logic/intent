@@ -6,7 +6,17 @@ import { createDefaultGroqClient } from "./providers/groq";
 describe("Intent (default Groq) ", () => {
   test("uses groq client (via DI)", async () => {
     const callMock = vi.fn(async (_req: any) => ({
-      choices: [{ message: { role: "assistant", content: JSON.stringify({ A: 10, B: 0 }) } }],
+      choices: [
+        {
+          message: {
+            role: "assistant",
+            content: JSON.stringify({
+              A: { explanation: "a", score: 10 },
+              B: { explanation: "b", score: 0 },
+            }),
+          },
+        },
+      ],
     }));
     const llm = createDefaultGroqClient("test-key", {
       makeSdk: () => ({ chat: { completions: { create: callMock } } }),

@@ -204,9 +204,11 @@ export class Intent<T = any> {
   /**
    * Rerank candidates based on relevance to a query.
    *
-   * Calls the LLM to score each candidate 0-10 based on relevance to the query,
-   * filters results by the configured threshold, and returns items sorted by score
-   * (highest first) with ties preserving original input order.
+   * Calls the LLM to evaluate each candidate and returns only those above the
+   * configured threshold, sorted by score (desc) with stable ordering on ties.
+   *
+   * The LLM is instructed to always generate an explanation before the score.
+   * Explanations are only returned when `options.explain` is true.
    *
    * Fast-path optimizations:
    * - Returns empty array for 0 candidates without LLM call
@@ -220,37 +222,77 @@ export class Intent<T = any> {
    * @param query - The search query or user intent to rank against
    * @param candidates - Array of items to rerank
    * @param options - Optional per-call configuration
+   * @param options.explain - When true, return `{ item, explanation }[]` instead of `T[]`
    * @param options.userId - Optional user ID for this specific call, overrides ctx.userId
    * @returns Filtered and sorted array of items, or original order on any error
    *
    * @example
    * ```typescript
-   * const results = await intent.rank(
-   *   "quarterly expense reports from 2024",
-   *   allDocuments,
-   *   { userId: "session-abc" }
-   * );
-   * // Returns only documents with score > threshold, sorted by relevance
+   * const itemsOnly = await intent.rank("find expense reports", docs);
+   *
+   * const withExplanations = await intent.rank("find expense reports", docs, { explain: true });
+   * // => [{ item: Doc, explanation: string }, ...]
    * ```
    */
-  public async rank(query: string, candidates: T[], options?: { userId?: string }): Promise<T[]> {
+  public async rank(
+    query: string,
+    candidates: T[],
+    options?: { explain?: false; userId?: string },
+  ): Promise<T[]>;
+
+  public async rank(
+    query: string,
+    candidates: T[],
+    options: { explain: true; userId?: string },
+  ): Promise<Array<{ item: T; explanation: string }>>;
+
+  public async rank(
+    query: string,
+    candidates: T[],
+    options?: { explain?: boolean; userId?: string },
+  ): Promise<T[] | Array<{ item: T; explanation: string }>> {
     try {
-      if (candidates.length === 0) return [];
-      if (candidates.length === 1) return candidates;
+      if (candidates.length === 0) {
+        return [];
+      }
+
+      if (candidates.length === 1) {
+        if (options?.explain) {
+          const [firstCandidate] = candidates;
+          return [{ item: firstCandidate!, explanation: "" }];
+        }
+        return candidates;
+      }
 
       const prepared = this.prepareCandidates(candidates);
-      return await batchProcess(
+
+      const rankedWithExplanations = await batchProcess(
         prepared,
         this.cfg.batchSize,
         this.cfg.tinyBatchFraction,
-        (batch) => this.processBatch(query, batch, options?.userId),
+        async (batch) =>
+          (await this.processBatch(
+            query,
+            batch,
+            options?.userId !== undefined ? { userId: options.userId } : undefined,
+          )) as Array<{ item: T; explanation: string }>,
         this.ctx.logger,
-        (batch) => batch.map(({ item }) => item),
+        (batch) => batch.map(({ item }) => ({ item, explanation: "" })),
       );
+
+      if (options?.explain) {
+        return rankedWithExplanations;
+      }
+
+      return rankedWithExplanations.map(({ item }) => item);
     } catch (error) {
       this.ctx.logger?.warn?.("intent reranker failed, using fallback", {
         error: (error as Error)?.message,
       });
+
+      if (options?.explain) {
+        return candidates.map((item) => ({ item, explanation: "" }));
+      }
       return candidates;
     }
   }
@@ -335,17 +377,17 @@ export class Intent<T = any> {
    * @returns Map of candidate keys to numeric scores, or null if response invalid
    * @private
    */
-  private async fetchScores(
+  private async fetchEvaluations(
     messages: ChatMessage[],
     schema: JSONObject,
     userId?: string,
-  ): Promise<Record<string, number> | null> {
+  ): Promise<Record<string, { explanation: string; score: number }> | null> {
     const config: LlmCallConfig = {
       model: this.cfg.model,
       temperature: 0,
       timeoutMs: this.cfg.timeoutMs,
     };
-    const { data } = await this.llm.call<Record<string, number>>(
+    const { data } = await this.llm.call<Record<string, { explanation: string; score: number }>>(
       messages,
       schema,
       config,
@@ -353,7 +395,7 @@ export class Intent<T = any> {
     );
 
     if (data == null || typeof data !== "object") return null;
-    return data as Record<string, number>;
+    return data as Record<string, { explanation: string; score: number }>;
   }
 
   /**
@@ -370,13 +412,15 @@ export class Intent<T = any> {
    */
   private rankAndFilter(
     items: Array<{ item: T; idx: number; key: string; summary: string }>,
-    scores: Record<string, number>,
-  ): T[] {
+    evaluations: Record<string, { explanation: string; score: number }>,
+  ): Array<{ item: T; explanation: string; score: number }> {
     const threshold = this.cfg.relevancyThreshold;
     const scored = items.map(({ item, idx, key }) => ({
       item,
       idx,
-      score: clamp(scores[key] ?? 0, 0, 10),
+      explanation:
+        typeof evaluations[key]?.explanation === "string" ? evaluations[key].explanation : "",
+      score: clamp(evaluations[key]?.score ?? 0, 0, 10),
     }));
 
     const filtered = scored.filter(({ score }) => score > threshold);
@@ -384,7 +428,7 @@ export class Intent<T = any> {
       if (b.score !== a.score) return b.score - a.score;
       return a.idx - b.idx;
     });
-    return sorted.map(({ item }) => item);
+    return sorted;
   }
 
   /**
@@ -403,12 +447,16 @@ export class Intent<T = any> {
   private async processBatch(
     query: string,
     batch: Array<{ item: T; idx: number; baseKey: string; summary: string }>,
-    userId?: string,
-  ): Promise<T[]> {
+    options?: { userId?: string },
+  ): Promise<Array<{ item: T; explanation: string }>> {
     const keyed = this.ensureUniqueKeys(batch);
     const { schema, messages } = this.buildRequest(query, keyed);
-    const scores = await this.fetchScores(messages, schema, userId);
-    if (scores == null) return keyed.map(({ item }) => item);
-    return this.rankAndFilter(keyed, scores);
+    const evaluations = await this.fetchEvaluations(messages, schema, options?.userId);
+    if (evaluations == null) {
+      return keyed.map(({ item }) => ({ item, explanation: "" }));
+    }
+
+    const ranked = this.rankAndFilter(keyed, evaluations);
+    return ranked.map(({ item, explanation }) => ({ item, explanation }));
   }
 }

@@ -2,6 +2,7 @@ import { describe, expect, test, vi } from "vitest";
 
 import { CONFIG } from "./config";
 import { Intent } from "./intent";
+import { buildCandidateEvaluationSchema } from "./schema";
 
 import type { LlmClient, LoggerLike, IntentCandidate, IntentContext } from "./types";
 
@@ -26,6 +27,11 @@ function makeCtx(overrides: Partial<IntentContext> = {}): IntentContext & {
 }
 
 describe("Intent.rank", () => {
+  test("candidate evaluation schema defines explanation before score", () => {
+    const schema = buildCandidateEvaluationSchema();
+    expect(Object.keys(schema.properties)).toEqual(["explanation", "score"]);
+  });
+
   test("throws when no llm and no GROQ_API_KEY", async () => {
     const configOverride = {
       ...CONFIG,
@@ -74,10 +80,69 @@ describe("Intent.rank", () => {
     expect(ctx.llm.call).not.toHaveBeenCalled();
   });
 
+  test("returns explanation wrapper for single candidate when explain is true (no LLM call)", async () => {
+    const ctx = makeCtx();
+    const intent = new Intent<IntentCandidate>({
+      ...ctx,
+      key: (c) => c.key,
+      summary: (c) => c.summary,
+    });
+    const input = [{ key: "Only", summary: "s" }];
+    const res = await intent.rank("query", input, { explain: true });
+    expect(res).toEqual([{ item: input[0], explanation: "" }]);
+    expect(ctx.llm.call).not.toHaveBeenCalled();
+  });
+
+  test("returns explanations when explain option is true", async () => {
+    const ctx = makeCtx();
+    (ctx.llm.call as any).mockResolvedValueOnce({
+      data: {
+        A: { explanation: "matches query", score: 10 },
+        B: { explanation: "irrelevant", score: 0 },
+      },
+    });
+    const intent = new Intent<IntentCandidate>({
+      ...ctx,
+      key: (c) => c.key,
+      summary: (c) => c.summary,
+    });
+    const input = [
+      { key: "A", summary: "" },
+      { key: "B", summary: "" },
+    ];
+    const res = await intent.rank("query", input, { explain: true });
+    expect(res).toEqual([{ item: input[0], explanation: "matches query" }]);
+  });
+
+  test("explain option is false by default (returns T[])", async () => {
+    const ctx = makeCtx();
+    (ctx.llm.call as any).mockResolvedValueOnce({
+      data: {
+        A: { explanation: "matches query", score: 10 },
+        B: { explanation: "irrelevant", score: 0 },
+      },
+    });
+    const intent = new Intent<IntentCandidate>({
+      ...ctx,
+      key: (c) => c.key,
+      summary: (c) => c.summary,
+    });
+    const input = [
+      { key: "A", summary: "" },
+      { key: "B", summary: "" },
+    ];
+    const res = await intent.rank("query", input);
+    expect(res).toEqual([input[0]]);
+  });
+
   test("rounds scores, filters zeros, orders by score", async () => {
     const ctx = makeCtx();
     (ctx.llm.call as any).mockResolvedValueOnce({
-      data: { A: 10, B: 6.8, C: 0 },
+      data: {
+        A: { explanation: "a", score: 10 },
+        B: { explanation: "b", score: 6.8 },
+        C: { explanation: "c", score: 0 },
+      },
     });
     const intent = new Intent<IntentCandidate>({
       ...ctx,
@@ -93,7 +158,9 @@ describe("Intent.rank", () => {
 
   test("handles non-numeric or missing scores by clamping to 0", async () => {
     const ctx = makeCtx();
-    (ctx.llm.call as any).mockResolvedValueOnce({ data: { X: "nope" as any } });
+    (ctx.llm.call as any).mockResolvedValueOnce({
+      data: { X: { explanation: "x", score: "nope" as any } },
+    });
     const intent = new Intent<IntentCandidate>({
       ...ctx,
       key: (c) => c.key,
@@ -107,7 +174,12 @@ describe("Intent.rank", () => {
   test("normalizes out-of-range and infinite values", async () => {
     const ctx = makeCtx();
     (ctx.llm.call as any).mockResolvedValueOnce({
-      data: { A: -3, B: 11, C: 9.6, D: Number.POSITIVE_INFINITY },
+      data: {
+        A: { explanation: "a", score: -3 },
+        B: { explanation: "b", score: 11 },
+        C: { explanation: "c", score: 9.6 },
+        D: { explanation: "d", score: Number.POSITIVE_INFINITY },
+      },
     });
     const intent = new Intent<IntentCandidate>({
       ...ctx,
@@ -164,7 +236,12 @@ describe("Intent.rank", () => {
   test("uses empty summary when extractor is missing", async () => {
     const ctx = makeCtx();
     // Return some scores so rank proceeds
-    (ctx.llm.call as any).mockResolvedValueOnce({ data: { A: 1, B: 0 } });
+    (ctx.llm.call as any).mockResolvedValueOnce({
+      data: {
+        A: { explanation: "a", score: 1 },
+        B: { explanation: "b", score: 0 },
+      },
+    });
     const intent = new Intent<IntentCandidate>({
       ...ctx,
       key: (c) => c.key,
@@ -207,9 +284,40 @@ describe("Intent.rank", () => {
     expect(ctx.logger.warn).toHaveBeenCalled();
   });
 
+  test("top-level rank catch: logs and returns wrapped input when explain is true", async () => {
+    const ctx = makeCtx();
+    const intent = new Intent<IntentCandidate>({
+      ...ctx,
+      key: (c) => c.key,
+      summary: (c) => c.summary,
+    });
+    // @ts-ignore override private method to throw to trigger top-level catch
+    intent.prepareCandidates = () => {
+      throw new Error("oops");
+    };
+    const input = [
+      { key: "A", summary: "" },
+      { key: "B", summary: "" },
+      { key: "C", summary: "" },
+    ];
+
+    const res = await intent.rank("query", input, { explain: true });
+    expect(res).toEqual([
+      { item: input[0], explanation: "" },
+      { item: input[1], explanation: "" },
+      { item: input[2], explanation: "" },
+    ]);
+    expect(ctx.logger.warn).toHaveBeenCalled();
+  });
+
   test("passes userId from ctx and allows method override", async () => {
     const ctx = makeCtx({ userId: "ctx-user" });
-    (ctx.llm.call as any).mockResolvedValueOnce({ data: { A: 5, B: 5 } });
+    (ctx.llm.call as any).mockResolvedValueOnce({
+      data: {
+        A: { explanation: "a", score: 5 },
+        B: { explanation: "b", score: 5 },
+      },
+    });
     const intent = new Intent<IntentCandidate>({
       ...ctx,
       key: (c) => c.key,
@@ -226,7 +334,12 @@ describe("Intent.rank", () => {
 
   test("timeout config is forwarded to client", async () => {
     const ctx = makeCtx();
-    (ctx.llm.call as any).mockResolvedValueOnce({ data: { A: 5, B: 5 } });
+    (ctx.llm.call as any).mockResolvedValueOnce({
+      data: {
+        A: { explanation: "a", score: 5 },
+        B: { explanation: "b", score: 5 },
+      },
+    });
     const intent = new Intent<IntentCandidate>({
       ...ctx,
       key: (c) => c.key,
@@ -245,8 +358,18 @@ describe("Intent.rank", () => {
   test("splits long lists into batches and combines results", async () => {
     const ctx = makeCtx();
     (ctx.llm.call as any)
-      .mockResolvedValueOnce({ data: { K2: 10, K0: 7 } })
-      .mockResolvedValueOnce({ data: { K7: 10, K6: 9 } });
+      .mockResolvedValueOnce({
+        data: {
+          K2: { explanation: "k2", score: 10 },
+          K0: { explanation: "k0", score: 7 },
+        },
+      })
+      .mockResolvedValueOnce({
+        data: {
+          K7: { explanation: "k7", score: 10 },
+          K6: { explanation: "k6", score: 9 },
+        },
+      });
 
     const intent = new Intent<IntentCandidate>({
       ...ctx,
@@ -309,7 +432,12 @@ describe("Intent.rank", () => {
   test("one batch fails while others succeed (partial fallback)", async () => {
     const ctx = makeCtx();
     (ctx.llm.call as any)
-      .mockResolvedValueOnce({ data: { K1: 10, K0: 9 } })
+      .mockResolvedValueOnce({
+        data: {
+          K1: { explanation: "k1", score: 10 },
+          K0: { explanation: "k0", score: 9 },
+        },
+      })
       .mockRejectedValueOnce(new Error("boom"));
 
     const intent = new Intent<IntentCandidate>({
@@ -326,6 +454,40 @@ describe("Intent.rank", () => {
 
     const out = await intent.rank("query", input);
     expect(out.map((c) => c.key)).toEqual(["K1", "K0", "K3", "K4", "K5"]);
+    expect((ctx.llm.call as any).mock.calls.length).toBe(2);
+  });
+
+  test("one batch fails while others succeed when explain is true (partial fallback)", async () => {
+    const ctx = makeCtx();
+    (ctx.llm.call as any)
+      .mockResolvedValueOnce({
+        data: {
+          K1: { explanation: "k1", score: 10 },
+          K0: { explanation: "k0", score: 9 },
+        },
+      })
+      .mockRejectedValueOnce(new Error("boom"));
+
+    const intent = new Intent<IntentCandidate>({
+      ...ctx,
+      key: (c) => c.key,
+      summary: (c) => c.summary,
+      batchSize: 3,
+    });
+
+    const input: IntentCandidate[] = Array.from({ length: 6 }).map((_, i) => ({
+      key: `K${i}`,
+      summary: `S${i}`,
+    }));
+
+    const out = await intent.rank("query", input, { explain: true });
+    expect(out).toEqual([
+      { item: input[1], explanation: "k1" },
+      { item: input[0], explanation: "k0" },
+      { item: input[3], explanation: "" },
+      { item: input[4], explanation: "" },
+      { item: input[5], explanation: "" },
+    ]);
     expect((ctx.llm.call as any).mock.calls.length).toBe(2);
   });
 
@@ -346,10 +508,33 @@ describe("Intent.rank", () => {
     expect(out).toEqual(input);
   });
 
+  test("returns blank explanations on null LLM payload when explain is true", async () => {
+    const ctx = makeCtx();
+    (ctx.llm.call as any).mockResolvedValueOnce({ data: null });
+    const intent = new Intent<IntentCandidate>({
+      ...ctx,
+      key: (c) => c.key,
+      summary: (c) => c.summary,
+    });
+    const input: IntentCandidate[] = [
+      { key: "A", summary: "S" },
+      { key: "B", summary: "S" },
+    ];
+
+    const out = await intent.rank("query", input, { explain: true });
+    expect(out).toEqual([
+      { item: input[0], explanation: "" },
+      { item: input[1], explanation: "" },
+    ]);
+  });
+
   test("stable order for ties within a batch (duplicate keys)", async () => {
     const ctx = makeCtx();
     (ctx.llm.call as any).mockResolvedValueOnce({
-      data: { Same: 5, "Same (1)": 5 },
+      data: {
+        Same: { explanation: "s0", score: 5 },
+        "Same (1)": { explanation: "s1", score: 5 },
+      },
     });
 
     const intent = new Intent<IntentCandidate>({

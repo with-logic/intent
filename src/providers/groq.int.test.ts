@@ -44,14 +44,19 @@ describe("groq provider integration", () => {
     ];
     const schema = buildRelevancySchema(candidates.map((c) => c.key));
     const messages = buildMessages("choose best", candidates);
-    const { data } = await client.call<Record<string, number>>(messages, schema, {
-      timeoutMs: 5000,
-    });
+    const { data } = await client.call<Record<string, { explanation: string; score: number }>>(
+      messages,
+      schema,
+      {
+        timeoutMs: 5000,
+      },
+    );
     expect(Object.keys(data)).toEqual(["A", "B"]);
     for (const k of Object.keys(data)) {
-      expect(typeof data[k]).toBe("number");
-      expect(data[k]).toBeGreaterThanOrEqual(0);
-      expect(data[k]).toBeLessThanOrEqual(10);
+      expect(typeof data[k]?.explanation).toBe("string");
+      expect(typeof data[k]?.score).toBe("number");
+      expect(data[k]?.score).toBeGreaterThanOrEqual(0);
+      expect(data[k]?.score).toBeLessThanOrEqual(10);
     }
   });
 
@@ -64,13 +69,17 @@ describe("groq provider integration", () => {
     ];
     const schema = buildRelevancySchema(candidates.map((c) => c.key));
     const messages = buildMessages("Help me with JavaScript array sorting", candidates);
-    const { data } = await client.call<Record<string, number>>(messages, schema, {
-      timeoutMs: 6000,
-    });
+    const { data } = await client.call<Record<string, { explanation: string; score: number }>>(
+      messages,
+      schema,
+      {
+        timeoutMs: 6000,
+      },
+    );
     // Related candidate should be > 0
-    expect(data["JS Arrays"]).toBeGreaterThan(0);
+    expect(data["JS Arrays"]?.score).toBeGreaterThan(0);
     // Unrelated candidates should be 0
-    expect(data["Banana Bread Recipe"]).toBe(0);
-    expect(data["Eiffel Tower History"]).toBe(0);
+    expect(data["Banana Bread Recipe"]?.score).toBe(0);
+    expect(data["Eiffel Tower History"]?.score).toBe(0);
   });
 });

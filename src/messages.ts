@@ -17,19 +17,23 @@ import type { ChatMessage, IntentCandidate } from "./types";
  * @returns Array of chat messages ready for LLM consumption
  */
 export function buildMessages(query: string, candidates: IntentCandidate[]): ChatMessage[] {
-  const system = `The user will provide a short description of a query they are trying to automate, along with a JSON blob containing candidate_search_results. Each candidate result has a uniquely identifying key and a short summary. Your task is to assess each candidate and return a JSON object that maps candidate keys to integers from 0 to 10: 0 means not relevant at all, and 10 means highly relevant. Sometimes none are relevant, sometimes all are relevant. Be aggressive and decisive on relevancy.
+  const system = `The user will provide a short description of a query they are trying to automate, along with a JSON blob containing candidate_search_results. Each candidate result has a uniquely identifying key and a short summary. Your task is to assess each candidate and return a JSON object that maps candidate keys to objects of the form {"explanation": string, "score": integer} where score is from 0 to 10: 0 means not relevant at all, and 10 means highly relevant. Sometimes none are relevant, sometimes all are relevant. Be aggressive and decisive on relevancy.
 
 It is okay to return 0 if the candidate is not relevant to the query. It is okay to return 10 if the candidate is highly relevant to the query. Use the full range of scores.
 
+Every candidate MUST include an explanation. Write the explanation first, then the score. The explanation should be concise (1-3 sentences), concrete, and reference the query intent and the candidate summary.
+
 Every key in candidate_search_results must be present in your output mapping. Do not add any keys that are not present in candidate_search_results.
-Every key in candidate_search_results must map to an integer from 0 to 10.
-Do not, in your generated JSON, include anything other than the \`"{key}": {score}\` mappings. Do not include any other text, formatting, context, explanation, or punctuation. Only provide your score.
+Every key in candidate_search_results must map to an object with:
+- explanation: string
+- score: integer from 0 to 10
+Do not, in your generated JSON, include anything other than the \`"{key}": {"explanation": "...", "score": 7}\` mappings. Do not include any other text outside the JSON.
 
 Return a JSON object that matches the enforced JSON schema for response formatting. Use the candidate.key as the property name in the output mapping.
 
 The JSON you return should be of the form: {
-    "Key for document 1": 0,
-    "Key for document 2": 7,
+    "Key for document 1": { "explanation": "...", "score": 0 },
+    "Key for document 2": { "explanation": "...", "score": 7 },
     ...
 }
 
