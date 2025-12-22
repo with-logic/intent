@@ -21,11 +21,24 @@ export function buildMessages(
   candidates: IntentCandidate[],
   scoreRange: { minScore: number; maxScore: number },
 ): ChatMessage[] {
-  const system = `The user will provide a short description of a query they are trying to automate, along with a JSON blob containing candidate_search_results. Each candidate result has a uniquely identifying key and a short summary. Your task is to assess each candidate and return a JSON object that maps candidate keys to objects of the form {"explanation": string, "score": integer} where score is from ${scoreRange.minScore} to ${scoreRange.maxScore}: ${scoreRange.minScore} means not relevant at all, and ${scoreRange.maxScore} means highly relevant. Sometimes none are relevant, sometimes all are relevant. Be aggressive and decisive on relevancy.
+  const system = `You will receive a JSON blob containing candidate_search_results (each candidate has a key and a short summary) plus a short user request.
+
+Your task is to assess each candidate and return a JSON object that maps candidate keys to objects of the form {"explanation": string, "score": integer} avoiding ambiguity.
+
+The score must be an integer from ${scoreRange.minScore} to ${scoreRange.maxScore}:
+- ${scoreRange.minScore} means not relevant at all
+- ${scoreRange.maxScore} means highly relevant
+
+Sometimes none are relevant, sometimes all are relevant. Be decisive.
 
 It is okay to return ${scoreRange.minScore} if the candidate is not relevant to the query. It is okay to return ${scoreRange.maxScore} if the candidate is highly relevant to the query. Use the full range of scores.
 
 Every candidate MUST include an explanation. Write the explanation first, then the score. The explanation should be concise (1-3 sentences), concrete, and reference the query intent and the candidate summary.
+
+Write explanations as end-user-facing justifications:
+- Do NOT say "the query" or talk about prompt mechanics.
+- Write in a direct, item-first voice (e.g., "gpt-5.2 is best here because it specializes in feature implementation and testing.").
+- Avoid "I"/"we".
 
 Every key in candidate_search_results must be present in your output mapping. Do not add any keys that are not present in candidate_search_results.
 Every key in candidate_search_results must map to an object with:
@@ -65,11 +78,18 @@ Pretty-print the JSON for readability.`;
  * @returns Array of chat messages ready for LLM consumption
  */
 export function buildFilterMessages(query: string, candidates: IntentCandidate[]): ChatMessage[] {
-  const system = `The user will provide a short description of a query they are trying to automate, along with a JSON blob containing candidate_search_results. Your task is to assess each candidate and return a JSON object that maps candidate keys to objects of the form {"explanation": string, "isRelevant": boolean}.
+  const system = `You will receive a JSON blob containing candidate_search_results (each candidate has a key and a short summary) plus a short user request.
+
+Your task is to assess each candidate and return a JSON object that maps candidate keys to objects of the form {"explanation": string, "isRelevant": boolean}.
 
 Return isRelevant=true only when the candidate clearly helps satisfy the query intent. Otherwise return isRelevant=false.
 
 Every candidate MUST include an explanation. Write the explanation first, then the boolean. The explanation should be concise (1-3 sentences), concrete, and reference the query intent and the candidate summary.
+
+Write explanations as end-user-facing justifications:
+- Do NOT say "the query" or talk about prompt mechanics.
+- Write in a direct, item-first voice.
+- Avoid "I"/"we".
 
 Every key in candidate_search_results must be present in your output mapping. Do not add any keys that are not present in candidate_search_results.
 Every key in candidate_search_results must map to an object with:
@@ -101,11 +121,18 @@ Pretty-print the JSON for readability.`;
  * @returns Array of chat messages ready for LLM consumption
  */
 export function buildChoiceMessages(query: string, candidates: IntentCandidate[]): ChatMessage[] {
-  const system = `The user will provide a short description of a query they are trying to automate, along with a JSON blob containing candidate_search_results. Your task is to choose exactly one candidate as the best match for the query.
+  const system = `You will receive a JSON blob containing candidate_search_results (each candidate has a key and a short summary) plus a short user request.
+
+Your task is to choose exactly one candidate as the best match for what the user wants.
 
 You MUST choose one candidate key from the provided list. Do not choose multiple.
 
 Return ONLY JSON of the form: {"explanation": string, "selectedKey": string} where selectedKey is exactly one of the candidate keys. The explanation should be concise (1-3 sentences), concrete, and reference the query intent and the candidate summary.
+
+Write the explanation as an end-user-facing justification:
+- Do NOT say "the query" or talk about prompt mechanics.
+- Write in a direct, item-first voice.
+- Avoid "I"/"we".
 
 Do not include any other text outside the JSON. Return only JSON matching the enforced schema.
 

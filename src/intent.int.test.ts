@@ -7,6 +7,27 @@ describe("intent integration", () => {
   const scoreRange = { minScore: 0, maxScore: 10 };
 
   test.concurrent(
+    "README quickstart: ranks simple strings and filters out unrelated items",
+    async () => {
+      const intent = new Intent({ relevancyThreshold: 1, timeoutMs: defaultTimeoutMs });
+
+      const docs = [
+        "Many network requests can fail intermittently due to transient issues.",
+        "To reduce flaky tests, add exponential backoff with jitter to HTTP retries.",
+        "Citrus fruits like oranges and lemons are high in vitamin C.",
+      ];
+
+      const ranked = await intent.rank("exponential backoff retries", docs);
+
+      expect(ranked).toEqual([
+        "To reduce flaky tests, add exponential backoff with jitter to HTTP retries.",
+        "Many network requests can fail intermittently due to transient issues.",
+      ]);
+    },
+    30000,
+  );
+
+  test.concurrent(
     "ranks the most relevant candidate first (simple object candidates)",
     async () => {
       const intent = new Intent<{ key: string; summary: string }>({
@@ -35,6 +56,46 @@ describe("intent integration", () => {
 
       const ranked = await intent.rank("citrus fruits", items);
       expect(ranked).toEqual(["orange"]);
+    },
+    30000,
+  );
+
+  test.concurrent(
+    "supports candidates with summary only (no key extractor)",
+    async () => {
+      const intent = new Intent<{ summary: string }>({
+        summary: (x) => x.summary,
+        timeoutMs: defaultTimeoutMs,
+        relevancyThreshold: 0,
+      });
+
+      const out = await intent.rank("Help me sort a JavaScript array", [
+        { summary: "The chemical composition of Saturn's moons" },
+        { summary: "Guide to sorting arrays in JavaScript" },
+        { summary: "Directions to the tower" },
+      ]);
+
+      expect(out).toEqual([{ summary: "Guide to sorting arrays in JavaScript" }]);
+    },
+    30000,
+  );
+
+  test.concurrent(
+    "supports candidates with key only (no summary extractor)",
+    async () => {
+      const intent = new Intent<{ key: string }>({
+        key: (x) => x.key,
+        timeoutMs: defaultTimeoutMs,
+        relevancyThreshold: 0,
+      });
+
+      const out = await intent.rank("Help me sort a JavaScript array", [
+        { key: "Saturns Moons" },
+        { key: "JS Arrays" },
+        { key: "Eiffel Tower" },
+      ]);
+
+      expect(out).toEqual([{ key: "JS Arrays" }]);
     },
     30000,
   );
@@ -371,6 +432,39 @@ describe("intent integration", () => {
   );
 
   test.concurrent(
+    "README filter example: filters tools down to the relevant subset",
+    async () => {
+      type Tool = {
+        name: string;
+        description: string;
+      };
+
+      const intent = new Intent<Tool>({
+        key: (t) => t.name,
+        summary: (t) => t.description,
+        timeoutMs: defaultTimeoutMs,
+      });
+
+      const tools: Tool[] = [
+        { name: "search", description: "Search the web for up-to-date information" },
+        { name: "sendEmail", description: "Send an email to a recipient" },
+        { name: "runSQL", description: "Run a SQL query against the analytics DB" },
+        { name: "createInvoice", description: "Create an invoice for a customer" },
+      ];
+
+      const task = "Find the customer's last invoice total and email it to them.";
+
+      const relevantTools = await intent.filter(task, tools);
+
+      // Filter is order-preserving, so we only assert membership.
+      const names = relevantTools.map((t) => t.name);
+      expect(names).toEqual(expect.arrayContaining(["sendEmail", "runSQL"]));
+      expect(names).not.toEqual(expect.arrayContaining(["createInvoice"]));
+    },
+    30000,
+  );
+
+  test.concurrent(
     "filter({ explain: true }) returns aligned explanations",
     async () => {
       const intent = new Intent<{ key: string; summary: string }>({
@@ -438,6 +532,50 @@ describe("intent integration", () => {
       expect(res.item.key).toBe("JS Arrays");
       expect(typeof res.explanation).toBe("string");
       expect(res.explanation.length).toBeGreaterThan(0);
+    },
+    60000,
+  );
+
+  test.concurrent(
+    "README choice example: routes to a best-fit model and explains why",
+    async () => {
+      type Model = {
+        id: string;
+        strengths: string;
+      };
+
+      const intent = new Intent<Model>({
+        key: (m) => m.id,
+        summary: (m) => m.strengths,
+        timeoutMs: defaultTimeoutMs,
+      });
+
+      const models: Model[] = [
+        {
+          id: "gemini-3-pro",
+          strengths: "Hard reasoning, math, complex debugging. Slower but very strong.",
+        },
+        {
+          id: "gpt-5.2",
+          strengths: "Best for code generation, refactors, feature implementation.",
+        },
+        {
+          id: "haiku-4.5",
+          strengths: "Fast and cheap. Good for triage and simple edits.",
+        },
+        {
+          id: "nano-banana-pro",
+          strengths: "Image generation and visual content.",
+        },
+      ];
+
+      const task = "Implement a feature to add retries with exponential backoff and tests.";
+
+      const { item: selected, explanation } = await intent.choice(task, models, { explain: true });
+
+      expect(selected.id).toBe("gpt-5.2");
+      expect(typeof explanation).toBe("string");
+      expect(explanation.length).toBeGreaterThan(0);
     },
     60000,
   );
