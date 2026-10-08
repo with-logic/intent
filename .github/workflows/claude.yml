@@ -51,7 +51,7 @@ jobs:
                 });
                 return ["write", "maintain", "admin"].includes(permission.permission);
               } catch (error) {
-                if (error.status === 403 || error.status === 404) {
+                if (error.status === 404) {
                   return false;
                 }
                 throw error;
