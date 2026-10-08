@@ -142,9 +142,13 @@ jobs:
           github-token: ${{ github.token }}
           retries: 0
           script: |
-            if (context.payload.comment?.body !== '/review') return;
+            if (context.payload.comment?.body !== '/review') {
+              return;
+            }
             const issue_number = Number(process.env.PR_NUMBER);
-            if (!Number.isSafeInteger(issue_number) || issue_number < 1) return;
+            if (!Number.isSafeInteger(issue_number) || issue_number < 1) {
+              return;
+            }
             const { owner, repo } = context.repo;
             const runUrl = `${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`;
             const status = process.env.REVIEW_STATUS === 'cancelled'

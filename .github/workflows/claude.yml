@@ -1,5 +1,6 @@
 # Keep manual Claude help and lesson extraction for current human writers.
-# Standard PR reviews now use code-review.yml; this workflow never checks out PR code.
+# Standard PR reviews use code-review.yml. Setup starts on the default branch;
+# the Claude action may later check out the PR branch.
 name: Claude Code
 
 on:
@@ -17,6 +18,13 @@ permissions:
 
 jobs:
   authorize:
+    if: >-
+      ((github.event_name == 'issue_comment' || github.event_name == 'pull_request_review_comment') &&
+       contains(github.event.comment.body, '@claude')) ||
+      (github.event_name == 'issues' && github.event.action == 'assigned' &&
+       (contains(github.event.issue.title, '@claude') || contains(github.event.issue.body, '@claude'))) ||
+      (github.event_name == 'pull_request_review' && github.event.action == 'submitted' &&
+       (github.event.review.state == 'APPROVED' || contains(github.event.review.body, '@claude')))
     name: Check current writer permission
     runs-on: ubuntu-latest
     timeout-minutes: 5
