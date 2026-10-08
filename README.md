@@ -342,3 +342,16 @@ const intent = new Intent({
   maxScore: 10,
 });
 ```
+
+## Pull request automation
+
+PRs are reviewed once when opened. A current repository writer can request another review by
+commenting exactly `/review`. Reviews use the shared twelve review skills together with this
+repository's `.github/pr-review-prompt.md` and `CLAUDE.md`. A completed review with no blockers or
+major findings can approve the PR; it never merges it.
+
+Shared automation also creates or reuses Linear tickets, explains approved merges in the shared
+channel, and warms review caches from `main`. Its source stays in the private `with-logic/pipeline`
+repository and is read through a GitHub App restricted to that repository. Fork PRs and outside
+requests cannot start privileged reviews. Manual `@claude` help and lesson extraction remain
+available to current human repository writers.
