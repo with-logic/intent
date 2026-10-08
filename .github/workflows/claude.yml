@@ -1,10 +1,6 @@
-# This workflow manages Claude Code integration with multiple trigger types:
-# 1. claude-mentions: Manual triggers via @claude mentions in PRs and issues
-# 2. claude-pr-review: Automatic PR reviews on creation
-# 3. claude-extract-lessons: Extract lessons from approved PRs
-#
-# Security Note: Auto-issue completion is intentionally disabled to prevent abuse
-# from external contributors. Only collaborators can trigger @claude mentions.
+# Keep manual Claude help and lesson extraction for current human writers.
+# Standard PR reviews use code-review.yml. Setup starts on the default branch;
+# the Claude action may later check out the PR branch.
 name: Claude Code
 
 on:
@@ -16,18 +12,118 @@ on:
     types: [assigned] # Only on assignment, not on creation
   pull_request_review:
     types: [submitted]
-  pull_request:
-    types: [opened]
+
+permissions:
+  contents: read
 
 jobs:
+  authorize:
+    if: >-
+      ((github.event_name == 'issue_comment' || github.event_name == 'pull_request_review_comment') &&
+       contains(github.event.comment.body, '@claude')) ||
+      (github.event_name == 'issues' && github.event.action == 'assigned' &&
+       (contains(github.event.issue.title, '@claude') || contains(github.event.issue.body, '@claude'))) ||
+      (github.event_name == 'pull_request_review' && github.event.action == 'submitted' &&
+       (github.event.review.state == 'APPROVED' || contains(github.event.review.body, '@claude')))
+    name: Check current writer permission
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+      issues: read
+    outputs:
+      mentions: ${{ steps.gate.outputs.mentions }}
+      lessons: ${{ steps.gate.outputs.lessons }}
+    steps:
+      # Check live records without source checkout, credentials, or write permissions.
+      - name: Authorize a human writer's request
+        id: gate
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            core.setOutput("mentions", "false");
+            core.setOutput("lessons", "false");
+            const { owner, repo } = context.repo;
+
+            /** Check current repository permission rather than a stale association. */
+            async function isCurrentWriter(user) {
+              if (user?.type !== "User" || !user.login) {
+                return false;
+              }
+              try {
+                const { data: permission } = await github.rest.repos.getCollaboratorPermissionLevel({
+                  owner,
+                  repo,
+                  username: user.login,
+                });
+                return ["write", "maintain", "admin"].includes(permission.permission);
+              } catch (error) {
+                if (error.status === 404) {
+                  return false;
+                }
+                throw error;
+              }
+            }
+
+            /** Load the current request so edited text or changed authors cannot bypass the gate. */
+            async function readRequest() {
+              const payload = context.payload;
+              if (context.eventName === "issue_comment") {
+                return (
+                  await github.rest.issues.getComment({
+                    owner,
+                    repo,
+                    comment_id: payload.comment.id,
+                  })
+                ).data;
+              }
+              if (context.eventName === "pull_request_review_comment") {
+                return (
+                  await github.rest.pulls.getReviewComment({
+                    owner,
+                    repo,
+                    comment_id: payload.comment.id,
+                  })
+                ).data;
+              }
+              if (context.eventName === "pull_request_review") {
+                return (
+                  await github.rest.pulls.getReview({
+                    owner,
+                    repo,
+                    pull_number: payload.pull_request.number,
+                    review_id: payload.review.id,
+                  })
+                ).data;
+              }
+              if (context.eventName === "issues" && payload.action === "assigned") {
+                const { data: issue } = await github.rest.issues.get({
+                  owner,
+                  repo,
+                  issue_number: payload.issue.number,
+                });
+                return { ...issue, user: payload.sender };
+              }
+              return null;
+            }
+
+            const request = await readRequest();
+            if (!request || !(await isCurrentWriter(request.user))) {
+              return;
+            }
+            const mentionsClaude = [request.body, request.title].some(
+              (text) => typeof text === "string" && text.includes("@claude"),
+            );
+            core.setOutput("mentions", String(mentionsClaude));
+            core.setOutput(
+              "lessons",
+              String(context.eventName === "pull_request_review" && request.state.toLowerCase() === "approved"),
+            );
   claude-handle-mentions:
     name: "Claude: Handle @mentions"
-    # Only run on @claude mentions, not on issue creation
-    if: |
-      (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@claude')) ||
-      (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@claude')) ||
-      (github.event_name == 'pull_request_review' && contains(github.event.review.body, '@claude')) ||
-      (github.event_name == 'issues' && github.event.action == 'assigned' && (contains(github.event.issue.body, '@claude') || contains(github.event.issue.title, '@claude')))
+    needs: authorize
+    if: needs.authorize.outputs.mentions == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 60
     permissions:
@@ -39,6 +135,8 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
+          # Execute only trusted project setup; PR text remains input to the assistant.
+          ref: ${{ github.event.repository.default_branch }}
           fetch-depth: 0
 
       - name: Setup Node.js
@@ -62,58 +160,10 @@ jobs:
         env:
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
 
-  claude-review-pr:
-    name: "Claude: Review New PR"
-    if: github.event_name == 'pull_request' && github.event.action == 'opened'
-    runs-on: ubuntu-latest
-    timeout-minutes: 60
-    permissions:
-      contents: write
-      pull-requests: write
-      issues: write
-      id-token: write
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: "24"
-          cache: "npm"
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Read PR review prompt
-        id: read-prompt
-        run: |
-          {
-            echo 'prompt<<EOF'
-            cat .github/pr-review-prompt.md
-            echo
-            echo 'EOF'
-          } >> $GITHUB_OUTPUT
-
-      - name: Run Claude Code - Review PR
-        id: claude-review
-        uses: anthropics/claude-code-action@beta
-        with:
-          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
-          model: "claude-sonnet-4-5"
-          fallback_model: "claude-opus-4-1"
-          use_commit_signing: true
-          allowed_tools: "Bash,Edit,MultiEdit,Write,Read,WebFetch,WebSearch,Glob,Grep"
-          direct_prompt: ${{ steps.read-prompt.outputs.prompt }}
-        env:
-          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
-
   claude-extract-lessons:
     name: "Claude: Extract PR Lessons"
-    # Only run when a PR is approved by a human (not github-actions bot)
-    if: github.event_name == 'pull_request_review' && github.event.review.state == 'approved' && github.actor != 'github-actions'
+    needs: authorize
+    if: needs.authorize.outputs.lessons == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 60
     permissions:
@@ -125,6 +175,8 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
+          # Execute only trusted project setup; PR text remains input to the assistant.
+          ref: ${{ github.event.repository.default_branch }}
           fetch-depth: 0
 
       - name: Setup Node.js
@@ -144,7 +196,7 @@ jobs:
             cat .github/pr-lessons-prompt.md
             echo
             echo 'EOF'
-          } >> $GITHUB_OUTPUT
+          } >> "$GITHUB_OUTPUT"
 
       - name: Run Claude Code - Extract PR Lessons
         id: claude-lessons
