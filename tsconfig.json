@@ -2,6 +2,9 @@
   "compilerOptions": {
     "target": "ES2020",
     "lib": ["ES2020", "DOM"],
+    "types": ["node"],
+    // Keep source and dependency references on Node 18, separate from Vitest's newer type peer.
+    "typeRoots": ["./node_modules/@types-runtime"],
     "module": "ES2020",
     "moduleResolution": "Bundler",
     "isolatedModules": true,
