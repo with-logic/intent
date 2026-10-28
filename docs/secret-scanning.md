@@ -76,10 +76,37 @@ when adding an exception; exceptions apply only to this repository.
 
 ## Local scans
 
-Install the native CLI once, then scan only the Git index:
+Install the native CLI once and activate the existing Husky hooks from the repo root:
 
 ```sh
 brew install gitleaks
+npm run prepare
+```
+
+Homebrew installs its current formula. For exact CI rule parity, use the
+[official v8.30.1 release](https://github.com/gitleaks/gitleaks/releases/tag/v8.30.1).
+Husky's existing preparation activates `.husky/prepare-commit-msg`. On normal
+commits, the staged scan runs after existing pre-commit checks.
+`git commit --no-verify` skips those checks but still runs this scan. The scanner
+runs offline and downloads nothing during a commit.
+
+Ignored `.env`, untracked files, and unstaged bytes are excluded. Staged and
+force-added credentials block the commit, including partially staged credentials
+removed only from the working tree. Missing Gitleaks and scanner errors also block
+staged commits. Stage native policy changes before committing; exact reviewed
+per-repository exceptions described above apply to local scans too.
+
+The hook scans text presented by native Git diff. Git attributes that mark a
+file as binary or apply textconv can change what the hook sees. The separate CI
+commit scan forces text and disables textconv.
+
+Quotes in hook output are display delimiters. Copy a normal `ignore-id` into
+`.gitleaksignore` without those quotes. For recurring public/test fixtures,
+prefer an exact-value TOML exception described above.
+
+To scan the Git index manually:
+
+```sh
 GIT_NO_LAZY_FETCH=1 \
 GIT_CONFIG_PARAMETERS="${GIT_CONFIG_PARAMETERS:+$GIT_CONFIG_PARAMETERS }'color.ui=false' 'color.diff=false'" \
 gitleaks git --pre-commit --staged --redact=100
@@ -96,6 +123,6 @@ gitleaks git --redact=100 \
   --log-opts="origin/main..HEAD --full-history --diff-merges=remerge --text --no-ext-diff --no-textconv"
 ```
 
-These commands do not install hooks. See the [native Gitleaks guide](https://github.com/gitleaks/gitleaks/tree/v8.30.1#readme)
-for CLI details. The organization-wide six-hour history sweep and Slack alerts are
+See the [native Gitleaks guide](https://github.com/gitleaks/gitleaks/tree/v8.30.1#readme)
+for CLI details. The organization-wide twelve-hour history sweep and Slack alerts are
 still rollout work; do not rely on them until activation is confirmed.
