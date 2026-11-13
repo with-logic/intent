@@ -406,7 +406,8 @@ describe("intent integration", () => {
 
       expect(out.map((x) => x.key)).toEqual(["JS Arrays"]);
     },
-    30000,
+    // Runs beside the multi-batch tests; a rate-limited request waits up to 60 s for its retry.
+    120000,
   );
 
   test.concurrent(
