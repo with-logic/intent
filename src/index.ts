@@ -11,5 +11,5 @@ export type {
   IntentContext,
 } from "./types";
 export { CONFIG } from "./config";
-export { createDefaultGroqClient } from "./providers/groq";
+export { createDefaultCerebrasClient } from "./providers/cerebras";
 export { DEFAULT_KEY_EXTRACTOR, DEFAULT_SUMMARY_EXTRACTOR } from "./extractors";

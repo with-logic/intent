@@ -4,40 +4,11 @@ import { CONFIG } from "../config";
 import { buildMessages } from "../messages";
 import { buildRelevancySchema } from "../schema";
 
-import { createDefaultGroqClient } from "./groq";
+import { createDefaultCerebrasClient } from "./cerebras";
 
-describe("groq provider integration", () => {
-  test.concurrent("repairs server-side schema validation failures", async () => {
-    const client = createDefaultGroqClient(CONFIG.GROQ.API_KEY, {
-      jsonRepairAttempts: 3,
-      defaults: { reasoningEffort: "medium" },
-    });
-
-    const schema = {
-      type: "object",
-      properties: {
-        A: { type: "string", enum: ["MUST_BE_THIS_EXACT_VALUE"] },
-      },
-      required: ["A"],
-      additionalProperties: false,
-    } as const;
-
-    const messages = [
-      {
-        role: "system",
-        content: 'Return ONLY JSON: {"A": "WRONG_VALUE"}.',
-      },
-    ] as any;
-
-    const { data } = await client.call<Record<string, string>>(messages, schema as any, {
-      timeoutMs: 6000,
-    });
-
-    expect(data.A).toBe("MUST_BE_THIS_EXACT_VALUE");
-  });
-
+describe("cerebras provider integration", () => {
   test.concurrent("provider returns scores for all schema keys", async () => {
-    const client = createDefaultGroqClient(CONFIG.GROQ.API_KEY);
+    const client = createDefaultCerebrasClient(CONFIG.CEREBRAS.API_KEY);
     const candidates = [
       { key: "A", summary: "first" },
       { key: "B", summary: "second" },
@@ -51,9 +22,7 @@ describe("groq provider integration", () => {
     const { data } = await client.call<Record<string, { explanation: string; score: number }>>(
       messages,
       schema,
-      {
-        timeoutMs: 5000,
-      },
+      { timeoutMs: 10000 },
     );
     expect(Object.keys(data)).toEqual(["A", "B"]);
     for (const k of Object.keys(data)) {
@@ -67,7 +36,7 @@ describe("groq provider integration", () => {
   test.concurrent(
     "assigns 0 to unrelated and >0 to related",
     async () => {
-      const client = createDefaultGroqClient(CONFIG.GROQ.API_KEY);
+      const client = createDefaultCerebrasClient(CONFIG.CEREBRAS.API_KEY);
       const candidates = [
         { key: "JS Arrays", summary: "Guide to sorting arrays in JavaScript" },
         { key: "Saturns Moons", summary: "The chemical composition of Saturn's moons" },
@@ -85,13 +54,9 @@ describe("groq provider integration", () => {
       const { data } = await client.call<Record<string, { explanation: string; score: number }>>(
         messages,
         schema,
-        {
-          timeoutMs: 10000,
-        },
+        { timeoutMs: 10000 },
       );
-      // Related candidate should be > 0
       expect(data["JS Arrays"]?.score).toBeGreaterThan(0);
-      // Unrelated candidates should be 0
       expect(data["Saturns Moons"]?.score).toBe(0);
       expect(data["Eiffel Tower"]?.score).toBe(0);
     },

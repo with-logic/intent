@@ -158,7 +158,7 @@ jobs:
           use_commit_signing: true
           allowed_tools: "Bash,Edit,MultiEdit,Write,Read,WebFetch,WebSearch,Glob,Grep"
         env:
-          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          CEREBRAS_API_KEY: ${{ secrets.CEREBRAS_API_KEY }}
 
   claude-extract-lessons:
     name: "Claude: Extract PR Lessons"
@@ -209,4 +209,4 @@ jobs:
           allowed_tools: "Bash,Edit,MultiEdit,Write,Read,WebFetch,WebSearch,Glob,Grep"
           direct_prompt: ${{ steps.read-lessons-prompt.outputs.prompt }}
         env:
-          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          CEREBRAS_API_KEY: ${{ secrets.CEREBRAS_API_KEY }}

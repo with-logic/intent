@@ -27,7 +27,7 @@ import type {
  *
  * @example
  * ```typescript
- * // Simplest: uses defaults and GROQ_API_KEY from environment
+ * // Simplest: uses defaults and CEREBRAS_API_KEY from environment
  * const intent = new Intent();
  * const ranked = await intent.rank("find expense reports", items);
  *
@@ -59,14 +59,14 @@ export class Intent<T = any> {
   /**
    * Resolve the model name to use for this Intent instance.
    *
-   * Intent is provider-driven. Today only GROQ is supported; when using GROQ
-   * we always take the model from GROQ's config defaults.
+   * Intent is provider-driven. Today only CEREBRAS is supported; when using CEREBRAS
+   * we always take the model from CEREBRAS's config defaults.
    *
    * @returns Provider-specific model name
    * @private
    */
   private resolveModel(): string {
-    return this.env.GROQ.DEFAULT_MODEL;
+    return this.env.CEREBRAS.DEFAULT_MODEL;
   }
 
   /**
@@ -155,17 +155,18 @@ export class Intent<T = any> {
    * Selects and validates the LLM client.
    *
    * Uses the provided client from context or attempts to create a default
-   * Groq client if GROQ_API_KEY is available.
+   * Cerebras client if CEREBRAS_API_KEY is available.
    *
    * @returns The selected LLM client
-   * @throws {Error} If no LLM client is provided and GROQ_API_KEY is not set
+   * @throws {Error} If no LLM client is provided and CEREBRAS_API_KEY is not set
    * @private
    */
   private selectAndValidateLlmClient(): LlmClient {
     const selectedClient = selectLlmClient(this.ctx, this.env);
     if (!selectedClient) {
       throw new Error(
-        "intent: No LLM client provided and GROQ_API_KEY not set. Provide options.llm or set GROQ_API_KEY.",
+        "intent: No LLM client provided and CEREBRAS_API_KEY not set. Provide options.llm or set CEREBRAS_API_KEY. " +
+          "GROQ_API_KEY is no longer supported: the built-in Groq client was removed.",
       );
     }
     return selectedClient;
@@ -175,25 +176,25 @@ export class Intent<T = any> {
    * Creates a new Intent instance.
    *
    * All options are optional with sensible defaults:
-   * - llm: Auto-detected from GROQ_API_KEY environment variable if available
+   * - llm: Auto-detected from CEREBRAS_API_KEY environment variable if available
    * - key: Hash-based string from JSON representation of items
    * - summary: Pretty-printed JSON of items (2-space indentation for LLM readability)
    * - Config values: From INTENT_* environment variables or built-in defaults
    *
    * @param options - Optional configuration object
-   * @param options.llm - Optional LLM client. If omitted, uses Groq client when GROQ_API_KEY is set
+   * @param options.llm - Optional LLM client. If omitted, uses Cerebras client when CEREBRAS_API_KEY is set
    * @param options.logger - Optional logger for warnings and errors
    * @param options.userId - Optional user identifier for LLM provider abuse monitoring
    * @param options.key - Optional function extracting a short human-readable key from items
    * @param options.summary - Optional function extracting a short description for LLM reasoning
-   * @param options.provider - Optional provider override (default: INTENT_PROVIDER or "GROQ")
+   * @param options.provider - Optional provider override (default: INTENT_PROVIDER or "CEREBRAS")
    * @param options.timeoutMs - Optional timeout in milliseconds (default: INTENT_TIMEOUT_MS or 3000)
    * @param options.relevancyThreshold - Optional minimum score to include results (default: INTENT_RELEVANCY_THRESHOLD)
    * @param options.minScore - Optional minimum score value (default: INTENT_MIN_SCORE or 0)
    * @param options.maxScore - Optional maximum score value (default: INTENT_MAX_SCORE or 10)
    * @param options.batchSize - Optional number of candidates per LLM call (default: INTENT_BATCH_SIZE or 20)
    * @param options.tinyBatchFraction - Optional threshold for merging small batches (default: INTENT_TINY_BATCH_FRACTION or 0.2)
-   * @throws {Error} If no LLM client is provided and GROQ_API_KEY is not set
+   * @throws {Error} If no LLM client is provided and CEREBRAS_API_KEY is not set
    * @throws {Error} If maxScore is below minScore
    * @throws {Error} If relevancyThreshold is not within [minScore, maxScore]
    *
@@ -603,7 +604,6 @@ export class Intent<T = any> {
   ): Promise<Record<string, { explanation: string; score: number }> | null> {
     const config: LlmCallConfig = {
       model: this.resolveModel(),
-      reasoningEffort: "medium",
       timeoutMs: this.cfg.timeoutMs,
     };
     const { data } = await this.llm.call<Record<string, { explanation: string; score: number }>>(
@@ -633,7 +633,6 @@ export class Intent<T = any> {
   ): Promise<Record<string, { explanation: string; isRelevant: boolean }> | null> {
     const config: LlmCallConfig = {
       model: this.resolveModel(),
-      reasoningEffort: "medium",
       timeoutMs: this.cfg.timeoutMs,
     };
     const { data } = await this.llm.call<
@@ -660,7 +659,6 @@ export class Intent<T = any> {
   ): Promise<{ explanation: string; selectedKey: string } | null> {
     const config: LlmCallConfig = {
       model: this.resolveModel(),
-      reasoningEffort: "medium",
       timeoutMs: this.cfg.timeoutMs,
     };
     const { data } = await this.llm.call<{ explanation: string; selectedKey: string }>(

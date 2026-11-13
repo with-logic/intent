@@ -140,19 +140,21 @@ describe("lib/config", () => {
 
   describe("enumeration()", () => {
     it("returns the env value when it is included in values", () => {
-      process.env[VAR] = "GROQ";
-      expect(cfg.enumeration(VAR, { values: ["GROQ"] as const })).toBe("GROQ");
+      process.env[VAR] = "CEREBRAS";
+      expect(cfg.enumeration(VAR, { values: ["CEREBRAS"] as const })).toBe("CEREBRAS");
     });
 
     it("returns default when missing", () => {
       unset(VAR);
-      expect(cfg.enumeration(VAR, { default: "GROQ", values: ["GROQ"] as const })).toBe("GROQ");
+      expect(cfg.enumeration(VAR, { default: "CEREBRAS", values: ["CEREBRAS"] as const })).toBe(
+        "CEREBRAS",
+      );
     });
 
     it("throws when the value is not included in values", () => {
       process.env[VAR] = "NOPE";
-      expect(() => cfg.enumeration(VAR, { values: ["GROQ"] as const })).toThrow(
-        /must be one of: GROQ/,
+      expect(() => cfg.enumeration(VAR, { values: ["CEREBRAS"] as const })).toThrow(
+        /must be one of: CEREBRAS/,
       );
     });
   });

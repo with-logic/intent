@@ -1,11 +1,12 @@
 import { describe, expect, test, vi } from "vitest";
 
 import { Intent } from "./intent";
-import { createDefaultGroqClient } from "./providers/groq";
+import { createDefaultCerebrasClient } from "./providers/cerebras";
 
-describe("Intent (default Groq) ", () => {
-  test("uses groq client (via DI)", async () => {
+describe("Intent (default Cerebras)", () => {
+  test("uses cerebras client (via DI)", async () => {
     const callMock = vi.fn(async (_req: any) => ({
+      object: "chat.completion",
       choices: [
         {
           message: {
@@ -18,8 +19,8 @@ describe("Intent (default Groq) ", () => {
         },
       ],
     }));
-    const llm = createDefaultGroqClient("test-key", {
-      makeSdk: () => ({ chat: { completions: { create: callMock } } }),
+    const llm = createDefaultCerebrasClient("test-key", {
+      sdk: { chat: { completions: { create: callMock } } },
     });
 
     const intent = new Intent<{ key: string; summary: string }>({
