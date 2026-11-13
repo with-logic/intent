@@ -245,7 +245,7 @@ INTENT_TINY_BATCH_FRACTION=0.2
 
 If you don't pass a custom `llm` client, Intent will create a default Cerebras client when this is set.
 
-**Migrating from 0.1.x:** version 0.2.0 removed the built-in Groq client, `createDefaultGroqClient` and the `GROQ_*` variables. If you only set `GROQ_API_KEY`, `new Intent()` now throws. Set `CEREBRAS_API_KEY`, or pass your own `llm` client (any object with the `LlmClient` `call()` method).
+**Migrating from 0.1.x:** version 0.2.0 removed the built-in Groq client, `createDefaultGroqClient`, the `GROQ_*` variables, `INTENT_PROVIDER=GROQ` and the `provider: "GROQ"` option. Delete or change those values. If you only set `GROQ_API_KEY`, `new Intent()` now throws. Set `CEREBRAS_API_KEY`, or pass your own `llm` client (any object with the `LlmClient` `call()` method).
 
 #### `CEREBRAS_DEFAULT_MODEL`
 

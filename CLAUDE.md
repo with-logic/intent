@@ -73,7 +73,7 @@ The `Intent` class orchestrates the entire ranking process:
 All config lives in config.ts using lib/config helpers:
 
 - Environment variables: `INTENT_MODEL`, `INTENT_TIMEOUT_MS`, `INTENT_RELEVANCY_THRESHOLD`, `INTENT_BATCH_SIZE`, `INTENT_TINY_BATCH_FRACTION`
-- Cerebras-specific: `CEREBRAS_API_KEY`, `CEREBRAS_DEFAULT_MODEL`, `CEREBRAS_DEFAULT_REASONING_EFFORT`, `CEREBRAS_JSON_REPAIR_ATTEMPTS`
+- Cerebras-specific: `CEREBRAS_API_KEY`, `CEREBRAS_DEFAULT_MODEL`, `CEREBRAS_DEFAULT_REASONING_EFFORT`, `CEREBRAS_JSON_REPAIR_ATTEMPTS` (total calls per request including the first)
 - Config is loaded automatically via `dotenv/config` import at top of config.ts
 - Intent constructor accepts options as a single optional object
 

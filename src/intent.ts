@@ -59,8 +59,8 @@ export class Intent<T = any> {
   /**
    * Resolve the model name to use for this Intent instance.
    *
-   * Intent is provider-driven. Today only CEREBRAS is supported; when using CEREBRAS
-   * we always take the model from CEREBRAS's config defaults.
+   * Intent supports one provider today (CEREBRAS), so the model always comes from
+   * `CONFIG.CEREBRAS.DEFAULT_MODEL`.
    *
    * @returns Provider-specific model name
    * @private

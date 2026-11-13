@@ -34,6 +34,7 @@ export type CerebrasSdkLike = {
 type CerebrasClientOptions = {
   defaults?: { model?: string; reasoningEffort?: CerebrasReasoningEffort };
   sdk?: CerebrasSdkLike;
+  /** Total calls allowed per request, including the first. 0 and 1 both mean no repair. */
   jsonRepairAttempts?: number;
 };
 
@@ -52,7 +53,7 @@ type RepairState = {
  * @returns Cerebras SDK client
  * @private
  */
-export function createCerebrasSdk(apiKey: string): CerebrasSdkLike {
+function createCerebrasSdk(apiKey: string): CerebrasSdkLike {
   return new Cerebras({ apiKey, warmTCPConnection: false });
 }
 
@@ -118,10 +119,16 @@ function buildRequest(
  * @private
  */
 function getResponseContent(response: ChatCompletion): string {
+  // The SDK return type is a union that also holds chunk and error shapes.
+  // Only a full completion carries message content.
   const isCompletion = "object" in response && response.object === "chat.completion";
   const content = isCompletion ? response.choices[0]?.message?.content : undefined;
   if (typeof content !== "string") {
-    throw new Error("Cerebras did not return content");
+    const finishReason = isCompletion ? (response.choices[0]?.finish_reason ?? "unknown") : "n/a";
+    const object = "object" in response ? String(response.object) : "missing";
+    throw new Error(
+      `Cerebras did not return content (object=${object}, finish_reason=${finishReason})`,
+    );
   }
   return content;
 }
@@ -184,7 +191,7 @@ async function completeWithRepair<T>(
   } catch (error) {
     const detail = String(error);
     if (state.remaining <= 1) {
-      throw new Error(`Cerebras returned invalid JSON: ${detail}`);
+      throw Object.assign(new Error(`Cerebras returned invalid JSON: ${detail}`), { cause: error });
     }
     const request = buildRepairRequest(state.request, content, detail);
     return completeWithRepair<T>(sdk, { remaining: state.remaining - 1, request }, timeoutMs);

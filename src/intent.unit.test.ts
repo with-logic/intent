@@ -64,16 +64,9 @@ describe("Intent.rank", () => {
     expect(
       () => new Intent<IntentCandidate>({ key: (c) => c.key, config: configOverride }),
     ).toThrow(/No LLM client provided/);
-  });
-
-  test("error text for a caller who only set GROQ_API_KEY names the replacement", () => {
-    const configOverride = {
-      ...CONFIG,
-      CEREBRAS: { ...CONFIG.CEREBRAS, API_KEY: "" },
-    } as typeof CONFIG;
-    expect(() => new Intent<IntentCandidate>({ config: configOverride })).toThrow(
-      /set CEREBRAS_API_KEY.*GROQ_API_KEY is no longer supported/,
-    );
+    expect(
+      () => new Intent<IntentCandidate>({ key: (c) => c.key, config: configOverride }),
+    ).toThrow(/set CEREBRAS_API_KEY.*GROQ_API_KEY is no longer supported/);
   });
 
   test("leaves reasoning effort to the client default", async () => {
@@ -91,9 +84,11 @@ describe("Intent.rank", () => {
 
     const configs = (ctx.llm.call as any).mock.calls.map((call: any[]) => call[2]);
     expect(configs).toHaveLength(3);
-    for (const config of configs) {
-      expect(config).not.toHaveProperty("reasoningEffort");
-    }
+    expect(configs.map((config: object) => "reasoningEffort" in config)).toEqual([
+      false,
+      false,
+      false,
+    ]);
   });
 
   test("keeps input order when keys are too long for the Cerebras strict schema limit", async () => {
