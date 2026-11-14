@@ -12,7 +12,7 @@ export type ChatMessage = {
 
 export type LlmCallConfig = {
   model?: string;
-  reasoningEffort?: "low" | "medium" | "high";
+  reasoningEffort?: "none" | "low" | "medium" | "high";
   timeoutMs?: number;
 };
 
@@ -42,7 +42,7 @@ export type IntentExtractors<T> = {
 };
 
 export type IntentContext = {
-  llm?: LlmClient; // if omitted and GROQ_API_KEY present, a Groq client is used
+  llm?: LlmClient; // if omitted and CEREBRAS_API_KEY present, a Cerebras client is used
   logger?: LoggerLike;
   userId?: string; // optional per-instance user id used for provider abuse monitoring
 };
@@ -64,7 +64,7 @@ export type CamelCasedProps<T> = {
  * This is a camelCase version of the INTENT config object from config.ts.
  */
 export type IntentConfig = {
-  provider?: "GROQ";
+  provider?: "CEREBRAS";
   timeoutMs?: number;
   relevancyThreshold?: number;
   batchSize?: number;
@@ -82,7 +82,7 @@ export type IntentConfig = {
  * - Intent configuration (model, timeoutMs, relevancyThreshold, batchSize, tinyBatchFraction)
  *
  * All fields are optional with sensible defaults:
- * - llm: Auto-detected from GROQ_API_KEY if available
+ * - llm: Auto-detected from CEREBRAS_API_KEY if available
  * - key: Hash-based string from JSON representation
  * - summary: Pretty-printed JSON of the item (2-space indentation for LLM readability)
  * - Config values: From environment variables or built-in defaults

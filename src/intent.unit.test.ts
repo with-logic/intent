@@ -2,9 +2,17 @@ import { describe, expect, test, vi } from "vitest";
 
 import { CONFIG } from "./config";
 import { Intent } from "./intent";
-import { buildCandidateEvaluationSchema } from "./schema";
+import { buildCandidateEvaluationSchema, buildRelevancySchema } from "./schema";
 
-import type { LlmClient, LoggerLike, IntentCandidate, IntentContext } from "./types";
+import type {
+  ChatMessage,
+  IntentCandidate,
+  IntentContext,
+  JSONObject,
+  LlmCallConfig,
+  LlmClient,
+  LoggerLike,
+} from "./types";
 
 function makeCtx(overrides: Partial<IntentContext> = {}): IntentContext & {
   llm: LlmClient & { call: ReturnType<typeof vi.fn> };
@@ -27,7 +35,7 @@ function makeCtx(overrides: Partial<IntentContext> = {}): IntentContext & {
 }
 
 describe("Intent.rank", () => {
-  test("uses GROQ default model when no model override is provided", async () => {
+  test("uses CEREBRAS default model when no model override is provided", async () => {
     const ctx = makeCtx();
     (ctx.llm.call as any).mockResolvedValueOnce({
       data: {
@@ -48,7 +56,7 @@ describe("Intent.rank", () => {
     ]);
 
     const call = (ctx.llm.call as any).mock.calls[0];
-    expect(call[2].model).toBe(CONFIG.GROQ.DEFAULT_MODEL);
+    expect(call[2].model).toBe(CONFIG.CEREBRAS.DEFAULT_MODEL);
   });
 
   test("candidate evaluation schema defines explanation before score", () => {
@@ -56,14 +64,93 @@ describe("Intent.rank", () => {
     expect(Object.keys(schema.properties)).toEqual(["explanation", "score"]);
   });
 
-  test("throws when no llm and no GROQ_API_KEY", async () => {
+  test("throws when no llm and no CEREBRAS_API_KEY", async () => {
     const configOverride = {
       ...CONFIG,
-      GROQ: { ...CONFIG.GROQ, API_KEY: "" },
+      CEREBRAS: { ...CONFIG.CEREBRAS, API_KEY: "" },
     } as typeof CONFIG;
     expect(
       () => new Intent<IntentCandidate>({ key: (c) => c.key, config: configOverride }),
     ).toThrow(/No LLM client provided/);
+    expect(
+      () => new Intent<IntentCandidate>({ key: (c) => c.key, config: configOverride }),
+    ).toThrow(/set CEREBRAS_API_KEY.*GROQ_API_KEY is no longer supported/);
+  });
+
+  test("leaves reasoning effort to the client default", async () => {
+    const ctx = makeCtx();
+    const configs: Array<LlmCallConfig | undefined> = [];
+    const call: LlmClient["call"] = async (
+      _messages: ChatMessage[],
+      _schema: JSONObject,
+      config?: LlmCallConfig,
+    ) => {
+      configs.push(config);
+      throw new Error("stop after recording the config");
+    };
+    const intent = new Intent<IntentCandidate>({ ...ctx, llm: { call }, key: (c) => c.key });
+    const input = [
+      { key: "A", summary: "" },
+      { key: "B", summary: "" },
+    ];
+
+    await intent.rank("query", input);
+    await intent.filter("query", input);
+    await intent.choice("query", input);
+
+    expect(configs).toHaveLength(3);
+    expect(configs.map((config) => config !== undefined && "reasoningEffort" in config)).toEqual([
+      false,
+      false,
+      false,
+    ]);
+  });
+
+  test("keeps input order when keys are too long for the Cerebras strict schema limit", async () => {
+    // Cerebras counts at most 5,000 characters of property names in a strict schema.
+    // The default batch holds 20 keys, so 20 keys of 300 characters give 6,000.
+    const strictSchemaLimit = 5000;
+    const keys = Array.from(
+      { length: 20 },
+      (_, i) => `${String(i).padStart(2, "0")}${"k".repeat(298)}`,
+    );
+    const schema = buildRelevancySchema(keys, 0, 10);
+    const propertyNameLength = Object.keys(schema.properties as object).join("").length;
+    expect(propertyNameLength).toBeGreaterThan(strictSchemaLimit);
+
+    const ctx = makeCtx();
+    (ctx.llm.call as any).mockRejectedValue(new Error("400 schema exceeds the strict mode limit"));
+    const intent = new Intent<IntentCandidate>({ ...ctx, key: (c) => c.key });
+    const input = keys.map((key) => ({ key, summary: "" }));
+
+    const ranked = await intent.rank("query", input);
+
+    const sentSchema = ctx.llm.call.mock.calls[0]![1] as JSONObject;
+    const sentKeys = Object.keys(sentSchema.properties as object);
+    expect(sentKeys).toEqual(expect.arrayContaining(keys));
+    expect(sentKeys.join("").length).toBeGreaterThan(strictSchemaLimit);
+    expect(ranked).toEqual(input);
+    expect(ctx.logger.warn).toHaveBeenCalled();
+  });
+
+  test("treats a string or NaN score like a missing score", async () => {
+    const ctx = makeCtx();
+    ctx.llm.call.mockResolvedValueOnce({
+      data: {
+        A: { explanation: "a", score: "9" },
+        B: { explanation: "b", score: Number.NaN },
+        C: { explanation: "c", score: 7 },
+      },
+    });
+    const intent = new Intent<IntentCandidate>({ ...ctx, key: (c) => c.key });
+
+    const ranked = await intent.rank("query", [
+      { key: "A", summary: "" },
+      { key: "B", summary: "" },
+      { key: "C", summary: "" },
+    ]);
+
+    expect(ranked.map((c) => c.key)).toEqual(["C"]);
   });
 
   test("throws when threshold is below 0", async () => {
@@ -217,7 +304,7 @@ describe("Intent.rank", () => {
     expect(res.map((c) => c.key)).toEqual(["A", "B"]);
     const call = (ctx.llm.call as any).mock.calls[0];
     expect(call[2].timeoutMs).toBe(3000); // default
-    expect(call[2].model).toBe("openai/gpt-oss-20b"); // GROQ default model
+    expect(call[2].model).toBe(CONFIG.CEREBRAS.DEFAULT_MODEL);
   });
 
   test("handles non-numeric or missing scores by clamping to 0", async () => {
@@ -785,32 +872,6 @@ describe("Intent.filter", () => {
 
     const call = (ctx.llm.call as any).mock.calls[0];
     expect(call[3]).toBe("call-user");
-  });
-
-  test("with explain=true returns wrapped input on top-level error", async () => {
-    const ctx = makeCtx({ llm: undefined });
-    const configOverride = {
-      ...CONFIG,
-      GROQ: { ...CONFIG.GROQ, API_KEY: "fake" },
-    } as typeof CONFIG;
-
-    const intent = new Intent<IntentCandidate>({
-      ...ctx,
-      config: configOverride,
-      key: (c) => c.key,
-      summary: (c) => c.summary,
-    });
-
-    const input = [
-      { key: "A", summary: "" },
-      { key: "B", summary: "" },
-    ];
-    const res = await intent.filter("query", input, { explain: true });
-    expect(res).toEqual([
-      { item: input[0], explanation: "" },
-      { item: input[1], explanation: "" },
-    ]);
-    expect(ctx.logger.warn).toHaveBeenCalled();
   });
 });
 
