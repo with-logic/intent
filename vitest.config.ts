@@ -14,6 +14,9 @@ export default defineConfig({
   test: {
     environment: "node",
     include: includePatterns,
+    // Integration tests call a live API. One at a time keeps a low requests-per-minute key from
+    // stalling several tests at once; the SDK waits up to 60 s for a rate-limit retry.
+    maxConcurrency: 1,
     testTimeout: scope === "int" ? 20000 : 5000,
     hookTimeout: scope === "int" ? 20000 : 5000,
     coverage: {

@@ -24,7 +24,7 @@ describe("intent integration", () => {
         "Many network requests can fail intermittently due to transient issues.",
       ]);
     },
-    30000,
+    120000,
   );
 
   test.concurrent(
@@ -45,7 +45,7 @@ describe("intent integration", () => {
 
       expect(out.map((x) => x.key)).toEqual(["JS Arrays"]);
     },
-    30000,
+    120000,
   );
 
   test.concurrent(
@@ -57,7 +57,7 @@ describe("intent integration", () => {
       const ranked = await intent.rank("citrus fruits", items);
       expect(ranked).toEqual(["orange"]);
     },
-    30000,
+    120000,
   );
 
   test.concurrent(
@@ -77,7 +77,7 @@ describe("intent integration", () => {
 
       expect(out).toEqual([{ summary: "Guide to sorting arrays in JavaScript" }]);
     },
-    30000,
+    120000,
   );
 
   test.concurrent(
@@ -97,7 +97,7 @@ describe("intent integration", () => {
 
       expect(out).toEqual([{ key: "JS Arrays" }]);
     },
-    30000,
+    120000,
   );
 
   test.concurrent(
@@ -119,7 +119,7 @@ describe("intent integration", () => {
 
       expect(out).toEqual([]);
     },
-    30000,
+    120000,
   );
 
   test.concurrent(
@@ -143,7 +143,7 @@ describe("intent integration", () => {
 
       expect(out).toEqual(input);
     },
-    30000,
+    120000,
   );
 
   test.concurrent(
@@ -169,7 +169,7 @@ describe("intent integration", () => {
       expect(typeof out[0]?.explanation).toBe("string");
       expect(out[0]?.explanation.length).toBeGreaterThan(0);
     },
-    30000,
+    120000,
   );
 
   test.concurrent(
@@ -191,7 +191,7 @@ describe("intent integration", () => {
       expect(out.length).toBe(1);
       expect(out[0]?.meta.title).toBe("Expense report Q3");
     },
-    30000,
+    120000,
   );
 
   test.concurrent(
@@ -212,7 +212,7 @@ describe("intent integration", () => {
 
       expect(out.map((x) => x.key)).toEqual(["Café"]);
     },
-    30000,
+    120000,
   );
 
   test.concurrent(
@@ -249,7 +249,7 @@ describe("intent integration", () => {
       expect(out.some((x) => x.key === "Stable sort: ties, order")).toBe(true);
       expect(out.some((x) => x.key === "Key with spaces\n(and newline)")).toBe(true);
     },
-    30000,
+    120000,
   );
 
   test.concurrent(
@@ -270,7 +270,7 @@ describe("intent integration", () => {
 
       expect(out.map((x) => x.key)).toEqual(["Same", "Same"]);
     },
-    30000,
+    120000,
   );
 
   test.concurrent(
@@ -293,7 +293,7 @@ describe("intent integration", () => {
       expect(out.length).toBeGreaterThanOrEqual(1);
       expect(out[0]?.key).toBe("JS Arrays");
     },
-    30000,
+    120000,
   );
 
   test.concurrent(
@@ -326,7 +326,7 @@ describe("intent integration", () => {
         "Quickstart",
       ]);
     },
-    60000,
+    120000,
   );
 
   test.concurrent(
@@ -406,7 +406,6 @@ describe("intent integration", () => {
 
       expect(out.map((x) => x.key)).toEqual(["JS Arrays"]);
     },
-    // Runs beside the multi-batch tests; a rate-limited request waits up to 60 s for its retry.
     120000,
   );
 
@@ -429,7 +428,7 @@ describe("intent integration", () => {
       const out = await intent.filter("JavaScript array sorting", input);
       expect(out.map((x) => x.key)).toEqual(["B", "C"]);
     },
-    30000,
+    120000,
   );
 
   test.concurrent(
@@ -462,7 +461,7 @@ describe("intent integration", () => {
       expect(names).toEqual(expect.arrayContaining(["sendEmail", "runSQL"]));
       expect(names).not.toEqual(expect.arrayContaining(["createInvoice"]));
     },
-    30000,
+    120000,
   );
 
   test.concurrent(
@@ -485,7 +484,7 @@ describe("intent integration", () => {
       expect(typeof out[0]?.explanation).toBe("string");
       expect(out[0]?.explanation.length).toBeGreaterThan(0);
     },
-    30000,
+    120000,
   );
 
   test.concurrent(
@@ -509,7 +508,7 @@ describe("intent integration", () => {
       const winner = await intent.choice("JavaScript array sorting", input);
       expect(winner.key).toBe("JS Arrays");
     },
-    60000,
+    120000,
   );
 
   test.concurrent(
@@ -534,7 +533,7 @@ describe("intent integration", () => {
       expect(typeof res.explanation).toBe("string");
       expect(res.explanation.length).toBeGreaterThan(0);
     },
-    60000,
+    120000,
   );
 
   test.concurrent(
@@ -578,6 +577,6 @@ describe("intent integration", () => {
       expect(typeof explanation).toBe("string");
       expect(explanation.length).toBeGreaterThan(0);
     },
-    60000,
+    120000,
   );
 });
