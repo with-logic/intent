@@ -357,7 +357,7 @@ const intent = new Intent({
 ## Pull request automation
 
 PRs are reviewed once when opened. A current repository writer can request another review by
-commenting exactly `/review`. Reviews use the shared twelve review skills together with this
+commenting exactly `/review`. Reviews use the shared review skills together with this
 repository's `.github/pr-review-prompt.md` and `CLAUDE.md`. A completed review with no blockers or
 major findings can approve the PR; it never merges it.
 

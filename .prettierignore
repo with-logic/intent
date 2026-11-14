@@ -7,3 +7,5 @@ coverage
 .prettierrc.json
 .prettierignore
 
+# Symlink to CLAUDE.md; a checkout without symlink support has it as a one-line file
+AGENTS.md

@@ -51,3 +51,12 @@ Thumbs.db
 
 # Claude PRD command
 PRD.md
+
+# Crew-managed project copies. The names review, review-* and
+# pull-request-description are reserved for Crew; skills with other names are
+# not ignored.
+/.*/skills/pull-request-description/
+/.*/skills/review/
+/.*/skills/review-*/
+/.*/skills/.crew-target
+/.*/skills/.crew-target.lock.owner
