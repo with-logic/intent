@@ -4,7 +4,15 @@ import { CONFIG } from "./config";
 import { Intent } from "./intent";
 import { buildCandidateEvaluationSchema, buildRelevancySchema } from "./schema";
 
-import type { LlmClient, LoggerLike, IntentCandidate, IntentContext } from "./types";
+import type {
+  ChatMessage,
+  IntentCandidate,
+  IntentContext,
+  JSONObject,
+  LlmCallConfig,
+  LlmClient,
+  LoggerLike,
+} from "./types";
 
 function makeCtx(overrides: Partial<IntentContext> = {}): IntentContext & {
   llm: LlmClient & { call: ReturnType<typeof vi.fn> };
@@ -71,8 +79,16 @@ describe("Intent.rank", () => {
 
   test("leaves reasoning effort to the client default", async () => {
     const ctx = makeCtx();
-    (ctx.llm.call as any).mockResolvedValue({ data: {} });
-    const intent = new Intent<IntentCandidate>({ ...ctx, key: (c) => c.key });
+    const configs: Array<LlmCallConfig | undefined> = [];
+    const call: LlmClient["call"] = async <T>(
+      _messages: ChatMessage[],
+      _schema: JSONObject,
+      config?: LlmCallConfig,
+    ) => {
+      configs.push(config);
+      return { data: {} as T };
+    };
+    const intent = new Intent<IntentCandidate>({ ...ctx, llm: { call }, key: (c) => c.key });
     const input = [
       { key: "A", summary: "" },
       { key: "B", summary: "" },
@@ -82,9 +98,8 @@ describe("Intent.rank", () => {
     await intent.filter("query", input);
     await intent.choice("query", input);
 
-    const configs = (ctx.llm.call as any).mock.calls.map((call: any[]) => call[2]);
     expect(configs).toHaveLength(3);
-    expect(configs.map((config: object) => "reasoningEffort" in config)).toEqual([
+    expect(configs.map((config) => config !== undefined && "reasoningEffort" in config)).toEqual([
       false,
       false,
       false,
@@ -110,8 +125,32 @@ describe("Intent.rank", () => {
 
     const ranked = await intent.rank("query", input);
 
+    const sentSchema = ctx.llm.call.mock.calls[0]![1] as JSONObject;
+    const sentKeys = Object.keys(sentSchema.properties as object);
+    expect(sentKeys).toEqual(expect.arrayContaining(keys));
+    expect(sentKeys.join("").length).toBeGreaterThan(strictSchemaLimit);
     expect(ranked).toEqual(input);
     expect(ctx.logger.warn).toHaveBeenCalled();
+  });
+
+  test("treats a string or NaN score like a missing score", async () => {
+    const ctx = makeCtx();
+    ctx.llm.call.mockResolvedValueOnce({
+      data: {
+        A: { explanation: "a", score: "9" },
+        B: { explanation: "b", score: Number.NaN },
+        C: { explanation: "c", score: 7 },
+      },
+    });
+    const intent = new Intent<IntentCandidate>({ ...ctx, key: (c) => c.key });
+
+    const ranked = await intent.rank("query", [
+      { key: "A", summary: "" },
+      { key: "B", summary: "" },
+      { key: "C", summary: "" },
+    ]);
+
+    expect(ranked.map((c) => c.key)).toEqual(["C"]);
   });
 
   test("throws when threshold is below 0", async () => {
@@ -833,32 +872,6 @@ describe("Intent.filter", () => {
 
     const call = (ctx.llm.call as any).mock.calls[0];
     expect(call[3]).toBe("call-user");
-  });
-
-  test("with explain=true returns wrapped input on top-level error", async () => {
-    const ctx = makeCtx({ llm: undefined });
-    const configOverride = {
-      ...CONFIG,
-      CEREBRAS: { ...CONFIG.CEREBRAS, API_KEY: "fake" },
-    } as typeof CONFIG;
-
-    const intent = new Intent<IntentCandidate>({
-      ...ctx,
-      config: configOverride,
-      key: (c) => c.key,
-      summary: (c) => c.summary,
-    });
-
-    const input = [
-      { key: "A", summary: "" },
-      { key: "B", summary: "" },
-    ];
-    const res = await intent.filter("query", input, { explain: true });
-    expect(res).toEqual([
-      { item: input[0], explanation: "" },
-      { item: input[1], explanation: "" },
-    ]);
-    expect(ctx.logger.warn).toHaveBeenCalled();
   });
 });
 

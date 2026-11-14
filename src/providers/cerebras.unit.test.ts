@@ -13,7 +13,12 @@ vi.mock("@cerebras/cerebras_cloud_sdk", () => ({ default: vi.fn() }));
 
 type CreateFn = CerebrasSdkLike["chat"]["completions"]["create"];
 
-const SCHEMA: JSONObject = { type: "object", properties: {}, additionalProperties: false };
+const SCHEMA: JSONObject = {
+  type: "object",
+  properties: { A: { type: "number" } },
+  required: ["A"],
+  additionalProperties: false,
+};
 const MESSAGES = [
   { role: "system", content: "sys" },
   { role: "user", content: "hi" },
@@ -24,14 +29,20 @@ const MESSAGES = [
  *
  * @param content - Message content
  * @param finishReason - Optional finish reason
- * @returns A completion with the fields the provider reads
+ * @returns A complete SDK completion
  */
-function makeCompletion(content: string | null, finishReason?: string): ChatCompletion {
-  // Partial fixture: the provider reads only `object` and `choices`.
+function makeCompletion(
+  content: string | null,
+  finishReason: ChatCompletion.ChatCompletionResponse.Choice["finish_reason"] = "stop",
+): ChatCompletion {
   return {
+    id: "id",
+    created: 0,
+    model: "m",
+    system_fingerprint: "fp",
     object: "chat.completion",
     choices: [{ index: 0, finish_reason: finishReason, message: { role: "assistant", content } }],
-  } as ChatCompletion;
+  } satisfies ChatCompletion.ChatCompletionResponse;
 }
 
 /**
@@ -137,15 +148,36 @@ describe("cerebras provider", () => {
     expect(create.mock.calls[0]![0].messages).toHaveLength(MESSAGES.length);
   });
 
-  test("throws after the last repair attempt still returns invalid JSON", async () => {
-    const { create, sdk } = makeSdk("nope", "still nope");
+  test("makes three calls by default before giving up on invalid JSON", async () => {
+    const { create, sdk } = makeSdk("nope", "nope", '{"A":3}');
+    const client = createDefaultCerebrasClient("key", { sdk });
+
+    const result = await client.call<{ A: number }>([...MESSAGES], SCHEMA);
+
+    expect(result.data).toEqual({ A: 3 });
+    expect(create).toHaveBeenCalledTimes(3);
+  });
+
+  test("forwards caller-provided assistant messages unchanged", async () => {
+    const { create, sdk } = makeSdk("{}");
+    const client = createDefaultCerebrasClient("key", { sdk });
+    const messages = [...MESSAGES, { role: "assistant" as const, content: "earlier answer" }];
+
+    await client.call(messages, SCHEMA);
+
+    expect(create.mock.calls[0]![0].messages).toEqual(messages);
+  });
+
+  test("throws a content-free error after the last repair attempt", async () => {
+    const { create, sdk } = makeSdk("secret-one", "secret-two");
     const client = createDefaultCerebrasClient("key", { sdk, jsonRepairAttempts: 2 });
 
     const error = await client.call([...MESSAGES], SCHEMA).catch((e: unknown) => e);
 
     expect(error).toMatchObject({
-      message: expect.stringMatching(/Cerebras returned invalid JSON/),
+      message: "Cerebras returned invalid JSON after all attempts",
     });
+    expect((error as Error).message).not.toMatch(/secret/);
     expect((error as Error & { cause?: unknown }).cause).toBeInstanceOf(SyntaxError);
     expect(create).toHaveBeenCalledTimes(2);
   });
@@ -184,11 +216,41 @@ describe("cerebras provider", () => {
     );
   });
 
-  test("throws when the response is not a chat completion", async () => {
-    // Error-shaped body: the SDK type union allows it, so the guard must handle it.
-    const create = vi
-      .fn<CreateFn>()
-      .mockResolvedValue({ error: { message: "boom" } } as unknown as ChatCompletion);
+  test("reports an unknown finish reason when the completion has none", async () => {
+    const create = vi.fn<CreateFn>().mockResolvedValue(makeCompletion(null, null));
+    const client = createDefaultCerebrasClient("key", { sdk: sdkOf(create) });
+
+    await expect(client.call([...MESSAGES], SCHEMA)).rejects.toThrow("finish_reason=unknown");
+  });
+
+  test("reports status and error code, not the message, for an error response", async () => {
+    const create = vi.fn<CreateFn>().mockResolvedValue({
+      status_code: 400,
+      error: { code: "wrong_api_format", type: "invalid_request_error", message: "echoed text" },
+    } satisfies ChatCompletion.ErrorChunkResponse);
+    const client = createDefaultCerebrasClient("key", { sdk: sdkOf(create) });
+
+    const error = await client.call([...MESSAGES], SCHEMA).catch((e: unknown) => e);
+
+    expect((error as Error).message).toBe(
+      "Cerebras returned an error response (status_code=400, code=wrong_api_format, type=invalid_request_error)",
+    );
+  });
+
+  test("uses n/a when an error response has no code or type", async () => {
+    const create = vi.fn<CreateFn>().mockResolvedValue({
+      status_code: 500,
+      error: {},
+    } satisfies ChatCompletion.ErrorChunkResponse);
+    const client = createDefaultCerebrasClient("key", { sdk: sdkOf(create) });
+
+    await expect(client.call([...MESSAGES], SCHEMA)).rejects.toThrow(
+      "(status_code=500, code=n/a, type=n/a)",
+    );
+  });
+
+  test("throws when the response is neither a completion nor an error", async () => {
+    const create = vi.fn<CreateFn>().mockResolvedValue({} as unknown as ChatCompletion);
     const client = createDefaultCerebrasClient("key", { sdk: sdkOf(create) });
 
     await expect(client.call([...MESSAGES], SCHEMA)).rejects.toThrow(

@@ -225,6 +225,8 @@ CEREBRAS_API_KEY=your_cerebras_api_key_here
 # Optional defaults
 CEREBRAS_DEFAULT_MODEL=qwen-3.8-27b
 CEREBRAS_DEFAULT_REASONING_EFFORT=none
+# Total calls per request, including the first; later calls ask the model to repair invalid JSON
+CEREBRAS_JSON_REPAIR_ATTEMPTS=3
 INTENT_TIMEOUT_MS=3000
 INTENT_MIN_SCORE=0
 INTENT_MAX_SCORE=10

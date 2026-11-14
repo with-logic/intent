@@ -123,14 +123,22 @@ function getResponseContent(response: ChatCompletion): string {
   // Only a full completion carries message content.
   const isCompletion = "object" in response && response.object === "chat.completion";
   const content = isCompletion ? response.choices[0]?.message?.content : undefined;
-  if (typeof content !== "string") {
-    const finishReason = isCompletion ? (response.choices[0]?.finish_reason ?? "unknown") : "n/a";
-    const object = "object" in response ? String(response.object) : "missing";
+  if (typeof content === "string") {
+    return content;
+  }
+  if ("error" in response) {
+    // Status and error code/type only. The error message can echo request content.
+    const { code, type } = response.error;
     throw new Error(
-      `Cerebras did not return content (object=${object}, finish_reason=${finishReason})`,
+      `Cerebras returned an error response (status_code=${response.status_code}, ` +
+        `code=${code ?? "n/a"}, type=${type ?? "n/a"})`,
     );
   }
-  return content;
+  const finishReason = isCompletion ? (response.choices[0]?.finish_reason ?? "unknown") : "n/a";
+  const object = "object" in response ? String(response.object) : "missing";
+  throw new Error(
+    `Cerebras did not return content (object=${object}, finish_reason=${finishReason})`,
+  );
 }
 
 /**
@@ -191,7 +199,10 @@ async function completeWithRepair<T>(
   } catch (error) {
     const detail = String(error);
     if (state.remaining <= 1) {
-      throw Object.assign(new Error(`Cerebras returned invalid JSON: ${detail}`), { cause: error });
+      // The parse error text can quote the completion, so it stays out of the message.
+      throw Object.assign(new Error("Cerebras returned invalid JSON after all attempts"), {
+        cause: error,
+      });
     }
     const request = buildRepairRequest(state.request, content, detail);
     return completeWithRepair<T>(sdk, { remaining: state.remaining - 1, request }, timeoutMs);
@@ -213,7 +224,10 @@ async function completeWithRepair<T>(
  * @example
  * ```typescript
  * const client = createDefaultCerebrasClient(process.env.CEREBRAS_API_KEY ?? "");
- * const result = await client.call(messages, schema, { model: "gpt-oss-120b" });
+ * const result = await client.call(messages, schema, {
+ *   model: "gpt-oss-120b",
+ *   reasoningEffort: "low",
+ * });
  * ```
  */
 export function createDefaultCerebrasClient(

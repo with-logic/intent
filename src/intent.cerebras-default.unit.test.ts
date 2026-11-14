@@ -11,9 +11,15 @@ describe("Intent (default Cerebras)", () => {
     const callMock = vi.fn<CerebrasSdkLike["chat"]["completions"]["create"]>(
       async () =>
         ({
+          id: "id",
+          created: 0,
+          model: "m",
+          system_fingerprint: "fp",
           object: "chat.completion",
           choices: [
             {
+              index: 0,
+              finish_reason: "stop",
               message: {
                 role: "assistant",
                 content: JSON.stringify({
@@ -23,8 +29,7 @@ describe("Intent (default Cerebras)", () => {
               },
             },
           ],
-          // Partial fixture: the provider reads only `object` and `choices`.
-        }) as ChatCompletion,
+        }) satisfies ChatCompletion.ChatCompletionResponse,
     );
     const llm = createDefaultCerebrasClient("test-key", {
       sdk: { chat: { completions: { create: callMock } } },

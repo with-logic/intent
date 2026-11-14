@@ -770,17 +770,17 @@ export class Intent<T = any> {
     evaluations: Record<string, { explanation: string; score: number }>,
   ): Array<{ item: T; explanation: string; score: number }> {
     const threshold = this.cfg.relevancyThreshold;
-    const scored = items.map(({ item, idx, key }) => ({
-      item,
-      idx,
-      explanation:
-        typeof evaluations[key]?.explanation === "string" ? evaluations[key].explanation : "",
-      score: clamp(
-        evaluations[key]?.score ?? this.cfg.minScore,
-        this.cfg.minScore,
-        this.cfg.maxScore,
-      ),
-    }));
+    const scored = items.map(({ item, idx, key }) => {
+      const raw = evaluations[key]?.score;
+      const score = typeof raw === "number" && !Number.isNaN(raw) ? raw : this.cfg.minScore;
+      return {
+        item,
+        idx,
+        explanation:
+          typeof evaluations[key]?.explanation === "string" ? evaluations[key].explanation : "",
+        score: clamp(score, this.cfg.minScore, this.cfg.maxScore),
+      };
+    });
 
     const filtered = scored.filter(({ score }) => score > threshold);
     const sorted = filtered.sort((a, b) => {
