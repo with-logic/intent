@@ -1,7 +1,7 @@
 import { describe, expect, test, vi } from "vitest";
 
 import { selectLlmClient } from "./llm_client";
-import * as groqProvider from "./providers/groq";
+import * as cerebrasProvider from "./providers/cerebras";
 
 describe("selectLlmClient", () => {
   test("returns ctx.llm when provided", () => {
@@ -9,22 +9,22 @@ describe("selectLlmClient", () => {
     const selected = selectLlmClient(
       { llm } as any,
       {
-        GROQ: { API_KEY: "k", DEFAULT_MODEL: "m", DEFAULT_REASONING_EFFORT: "medium" },
+        CEREBRAS: { API_KEY: "k", DEFAULT_MODEL: "m", DEFAULT_REASONING_EFFORT: "none" },
       } as any,
     );
     expect(selected).toBe(llm);
   });
 
-  test("returns undefined when GROQ api key missing", () => {
+  test("returns undefined when CEREBRAS api key missing", () => {
     const selected = selectLlmClient({}, {
-      GROQ: { API_KEY: "", DEFAULT_MODEL: "m", DEFAULT_REASONING_EFFORT: "medium" },
+      CEREBRAS: { API_KEY: "", DEFAULT_MODEL: "m", DEFAULT_REASONING_EFFORT: "none" },
     } as any);
     expect(selected).toBeUndefined();
   });
 
-  test("creates a default groq client using config defaults", async () => {
+  test("creates a default cerebras client using config defaults", async () => {
     const createSpy = vi
-      .spyOn(groqProvider, "createDefaultGroqClient")
+      .spyOn(cerebrasProvider, "createDefaultCerebrasClient")
       .mockImplementation((apiKey, options) => {
         expect(apiKey).toBe("test-key");
         expect(options?.defaults?.model).toBe("test-model");
@@ -36,7 +36,7 @@ describe("selectLlmClient", () => {
       });
 
     const config = {
-      GROQ: {
+      CEREBRAS: {
         API_KEY: "test-key",
         DEFAULT_MODEL: "test-model",
         DEFAULT_REASONING_EFFORT: "high",

@@ -71,7 +71,7 @@ for (const { item, explanation } of results) {
   motivate using backoff retries but does not describe the method.
 ```
 
-Intent will use a default Groq client when `GROQ_API_KEY` is set.
+Intent will use a default Cerebras client when `CEREBRAS_API_KEY` is set.
 
 ## Core API
 
@@ -220,11 +220,13 @@ Why: Feature implementation and testing fall under code generation and
 Intent reads `.env` automatically when imported.
 
 ```env
-GROQ_API_KEY=your_groq_api_key_here
+CEREBRAS_API_KEY=your_cerebras_api_key_here
 
 # Optional defaults
-GROQ_DEFAULT_MODEL=openai/gpt-oss-20b
-GROQ_DEFAULT_REASONING_EFFORT=medium
+CEREBRAS_DEFAULT_MODEL=qwen-3.8-27b
+CEREBRAS_DEFAULT_REASONING_EFFORT=none
+# Total calls per request, including the first; later calls ask the model to repair invalid JSON
+CEREBRAS_JSON_REPAIR_ATTEMPTS=3
 INTENT_TIMEOUT_MS=3000
 INTENT_MIN_SCORE=0
 INTENT_MAX_SCORE=10
@@ -241,24 +243,33 @@ INTENT_TINY_BATCH_FRACTION=0.2
 
 ### Provider + model
 
-#### `GROQ_API_KEY`
+#### `CEREBRAS_API_KEY`
 
-If you don't pass a custom `llm` client, Intent will create a default Groq client when this is set.
+If you don't pass a custom `llm` client, Intent will create a default Cerebras client when this is set.
 
-#### `GROQ_DEFAULT_MODEL`
+**Migrating from 0.1.x:** version 0.2.0 removed the built-in Groq client, `createDefaultGroqClient`, the `GROQ_*` variables, `INTENT_PROVIDER=GROQ` and the `provider: "GROQ"` option. Delete or change those values. If you only set `GROQ_API_KEY`, `new Intent()` now throws. Set `CEREBRAS_API_KEY`, or pass your own `llm` client (any object with the `LlmClient` `call()` method).
 
-Sets the model name used by the built-in Groq client.
+#### `CEREBRAS_DEFAULT_MODEL`
+
+Sets the model name used by the built-in Cerebras client (default `qwen-3.8-27b`).
 
 - Choose a stronger model when you care about nuanced ranking or long candidate summaries.
 - Choose a smaller model when you want lower latency/cost and your candidates are simple.
 
-#### `GROQ_DEFAULT_REASONING_EFFORT`
+#### `CEREBRAS_DEFAULT_REASONING_EFFORT`
 
-Controls how much reasoning the model should do (`low | medium | high`).
+Controls how much reasoning the model should do (`none | low | medium | high`). The default is `none`, which fits the 3 second default timeout.
 
-- `low`: fastest; best for obvious matches.
-- `medium`: good default.
-- `high`: better for subtle intent, but typically slower/more expensive.
+- `none`: no reasoning; fastest. Supported by `qwen-3.8-27b`, not by `gpt-oss-120b`.
+- `low`: fastest with reasoning; best for obvious matches.
+- `medium`: better for subtle intent, but slower.
+- `high`: slowest and most expensive.
+
+If you set `CEREBRAS_DEFAULT_MODEL=gpt-oss-120b`, also set this to `low`, `medium` or `high`.
+
+#### Schema size limit
+
+Intent sends each batch as a strict JSON schema whose property names are your candidate keys. Cerebras counts at most 5,000 characters of property names and enum values per schema. With the default batch size of 20, keys longer than about 250 characters on average can exceed this. For `rank()` and `filter()`, the request then fails and Intent returns that batch in its original order. `choice()` uses the keys as enum values in its final request, which can fail the same way and then throws or keeps only the first candidate of a failed batch. Use short keys, or lower `INTENT_BATCH_SIZE`.
 
 ### Ranking behavior
 

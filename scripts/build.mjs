@@ -24,7 +24,7 @@ const sharedOptions = {
   platform: "node",
   target: "node18",
   sourcemap: true,
-  external: ["groq-sdk", "dotenv"],
+  external: ["@cerebras/cerebras_cloud_sdk", "dotenv"],
 };
 
 /**

@@ -37,7 +37,7 @@ Intent is a TypeScript library that uses LLMs to rerank arbitrary items based on
 
 - `npm test` - Run all tests with coverage (unit + integration)
 - `npm run test:unit` - Unit tests only (100% coverage enforced)
-- `npm run test:int` - Integration tests only (requires `GROQ_API_KEY`)
+- `npm run test:int` - Integration tests only (requires `CEREBRAS_API_KEY`)
 - Test files are co-located: `*.unit.test.ts` for unit, `*.int.test.ts` for integration
 
 ### Linting
@@ -65,15 +65,15 @@ The `Intent` class orchestrates the entire ranking process:
 ### LLM Client Architecture
 
 - **Interface**: `LlmClient` (types.ts) - single `call()` method accepting messages, JSON schema, config, userId
-- **Default Provider**: Groq adapter (providers/groq.ts) with JSON schema response format and retry logic for validation failures
-- **Selection Logic**: `selectLlmClient()` chooses ctx.llm if provided, else creates Groq client if `GROQ_API_KEY` exists, else undefined
+- **Default Provider**: Cerebras adapter (providers/cerebras.ts) with strict JSON schema response format and a repair retry for invalid JSON
+- **Selection Logic**: `selectLlmClient()` chooses ctx.llm if provided, else creates Cerebras client if `CEREBRAS_API_KEY` exists, else undefined
 
 ### Configuration System
 
 All config lives in config.ts using lib/config helpers:
 
 - Environment variables: `INTENT_MODEL`, `INTENT_TIMEOUT_MS`, `INTENT_RELEVANCY_THRESHOLD`, `INTENT_BATCH_SIZE`, `INTENT_TINY_BATCH_FRACTION`
-- Groq-specific: `GROQ_API_KEY`, `GROQ_DEFAULT_MODEL`, `GROQ_DEFAULT_TEMPERATURE`
+- Cerebras-specific: `CEREBRAS_API_KEY`, `CEREBRAS_DEFAULT_MODEL`, `CEREBRAS_DEFAULT_REASONING_EFFORT`, `CEREBRAS_JSON_REPAIR_ATTEMPTS` (total calls per request including the first)
 - Config is loaded automatically via `dotenv/config` import at top of config.ts
 - Intent constructor accepts options as a single optional object
 
@@ -90,7 +90,7 @@ All config lives in config.ts using lib/config helpers:
 ## Testing Strategy
 
 - **Unit tests**: Mock all LLM calls, enforce 100% coverage
-- **Integration tests**: Live Groq API calls, no coverage requirements
+- **Integration tests**: Live Cerebras API calls, no coverage requirements
 - **Test scope control**: Set `TEST_SCOPE=unit|int|all` environment variable
 - Coverage excludes: index.ts, types.ts, test files, type definitions
 

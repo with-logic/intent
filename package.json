@@ -1,13 +1,13 @@
 {
   "name": "@with-logic/intent",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "private": false,
   "description": "Intent: a small, well-typed LLM-based reranker.",
   "keywords": [
     "llm",
     "reranker",
     "ranking",
-    "groq",
+    "cerebras",
     "openai",
     "relevance"
   ],
@@ -58,8 +58,8 @@
     "release:major": "npm version major && npm publish"
   },
   "dependencies": {
-    "dotenv": "^16.4.5",
-    "groq-sdk": "^0.8.0"
+    "@cerebras/cerebras_cloud_sdk": "1.91.0",
+    "dotenv": "^16.4.5"
   },
   "devDependencies": {
     "@eslint/js": "^9.11.1",

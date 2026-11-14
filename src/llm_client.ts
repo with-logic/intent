@@ -1,5 +1,5 @@
 import { CONFIG } from "./config";
-import { createDefaultGroqClient } from "./providers/groq";
+import { createDefaultCerebrasClient } from "./providers/cerebras";
 
 import type { LlmClient, IntentContext } from "./types";
 
@@ -8,7 +8,7 @@ import type { LlmClient, IntentContext } from "./types";
  *
  * Implements the client selection logic:
  * 1. If ctx.llm is provided, use it directly
- * 2. Else if GROQ_API_KEY environment variable is set, create default Groq client
+ * 2. Else if CEREBRAS_API_KEY environment variable is set, create default Cerebras client
  * 3. Else return undefined (caller must handle error)
  *
  * @param ctx - Context object potentially containing an LLM client
@@ -21,12 +21,12 @@ export function selectLlmClient(
   if (ctx.llm) {
     return ctx.llm;
   }
-  const groqKey = config.GROQ.API_KEY;
-  if (groqKey && groqKey !== "") {
-    return createDefaultGroqClient(groqKey, {
+  const cerebrasKey = config.CEREBRAS.API_KEY;
+  if (cerebrasKey && cerebrasKey !== "") {
+    return createDefaultCerebrasClient(cerebrasKey, {
       defaults: {
-        model: config.GROQ.DEFAULT_MODEL,
-        reasoningEffort: config.GROQ.DEFAULT_REASONING_EFFORT,
+        model: config.CEREBRAS.DEFAULT_MODEL,
+        reasoningEffort: config.CEREBRAS.DEFAULT_REASONING_EFFORT,
       },
     });
   }
