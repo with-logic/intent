@@ -80,13 +80,13 @@ describe("Intent.rank", () => {
   test("leaves reasoning effort to the client default", async () => {
     const ctx = makeCtx();
     const configs: Array<LlmCallConfig | undefined> = [];
-    const call: LlmClient["call"] = async <T>(
+    const call: LlmClient["call"] = async (
       _messages: ChatMessage[],
       _schema: JSONObject,
       config?: LlmCallConfig,
     ) => {
       configs.push(config);
-      return { data: {} as T };
+      throw new Error("stop after recording the config");
     };
     const intent = new Intent<IntentCandidate>({ ...ctx, llm: { call }, key: (c) => c.key });
     const input = [
@@ -304,7 +304,7 @@ describe("Intent.rank", () => {
     expect(res.map((c) => c.key)).toEqual(["A", "B"]);
     const call = (ctx.llm.call as any).mock.calls[0];
     expect(call[2].timeoutMs).toBe(3000); // default
-    expect(call[2].model).toBe("qwen-3.8-27b"); // CEREBRAS default model
+    expect(call[2].model).toBe(CONFIG.CEREBRAS.DEFAULT_MODEL);
   });
 
   test("handles non-numeric or missing scores by clamping to 0", async () => {

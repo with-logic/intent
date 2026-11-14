@@ -3,6 +3,7 @@ import { describe, expect, test } from "vitest";
 import { CONFIG } from "../config";
 import { buildMessages } from "../messages";
 import { buildRelevancySchema } from "../schema";
+import { CEREBRAS_INTEGRATION_TEST_TIMEOUT_MS } from "../timeouts.test";
 
 import { createDefaultCerebrasClient } from "./cerebras";
 
@@ -27,14 +28,16 @@ describe("cerebras provider integration", () => {
         { timeoutMs: 10000 },
       );
       expect(Object.keys(data)).toEqual(["A", "B"]);
-      for (const k of Object.keys(data)) {
-        expect(typeof data[k]?.explanation).toBe("string");
-        expect(typeof data[k]?.score).toBe("number");
-        expect(data[k]?.score).toBeGreaterThanOrEqual(0);
-        expect(data[k]?.score).toBeLessThanOrEqual(10);
-      }
+      expect(typeof data.A?.explanation).toBe("string");
+      expect(typeof data.B?.explanation).toBe("string");
+      expect(typeof data.A?.score).toBe("number");
+      expect(typeof data.B?.score).toBe("number");
+      expect(data.A?.score).toBeGreaterThanOrEqual(0);
+      expect(data.A?.score).toBeLessThanOrEqual(10);
+      expect(data.B?.score).toBeGreaterThanOrEqual(0);
+      expect(data.B?.score).toBeLessThanOrEqual(10);
     },
-    120000,
+    CEREBRAS_INTEGRATION_TEST_TIMEOUT_MS,
   );
 
   test.concurrent(
@@ -64,6 +67,6 @@ describe("cerebras provider integration", () => {
       expect(data["Saturns Moons"]?.score).toBe(0);
       expect(data["Eiffel Tower"]?.score).toBe(0);
     },
-    120000,
+    CEREBRAS_INTEGRATION_TEST_TIMEOUT_MS,
   );
 });

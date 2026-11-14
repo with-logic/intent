@@ -269,7 +269,7 @@ If you set `CEREBRAS_DEFAULT_MODEL=gpt-oss-120b`, also set this to `low`, `mediu
 
 #### Schema size limit
 
-Intent sends each batch as a strict JSON schema whose property names are your candidate keys. Cerebras counts at most 5,000 characters of property names and enum values per schema. With the default batch size of 20, keys longer than about 250 characters on average can exceed this. The request then fails and Intent returns that batch in its original order. Use short keys, or lower `INTENT_BATCH_SIZE`.
+Intent sends each batch as a strict JSON schema whose property names are your candidate keys. Cerebras counts at most 5,000 characters of property names and enum values per schema. With the default batch size of 20, keys longer than about 250 characters on average can exceed this. For `rank()` and `filter()`, the request then fails and Intent returns that batch in its original order. `choice()` uses the keys as enum values in its final request, which can fail the same way and then throws or keeps only the first candidate of a failed batch. Use short keys, or lower `INTENT_BATCH_SIZE`.
 
 ### Ranking behavior
 

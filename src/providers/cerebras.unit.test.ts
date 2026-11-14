@@ -80,8 +80,8 @@ describe("cerebras provider", () => {
     expect(create).toHaveBeenCalledTimes(1);
     const [request, options] = create.mock.calls[0]!;
     expect(request).toEqual({
-      model: "qwen-3.8-27b",
-      reasoning_effort: "none",
+      model: CONFIG.CEREBRAS.DEFAULT_MODEL,
+      reasoning_effort: CONFIG.CEREBRAS.DEFAULT_REASONING_EFFORT,
       temperature: 0,
       messages: [...MESSAGES],
       response_format: {
@@ -90,7 +90,6 @@ describe("cerebras provider", () => {
       },
     });
     expect(options).toBeUndefined();
-    expect(CONFIG.CEREBRAS.DEFAULT_MODEL).toBe("qwen-3.8-27b");
   });
 
   test("per-call config, client defaults, user id and timeout are applied", async () => {
@@ -148,7 +147,7 @@ describe("cerebras provider", () => {
     expect(create.mock.calls[0]![0].messages).toHaveLength(MESSAGES.length);
   });
 
-  test("makes three calls by default before giving up on invalid JSON", async () => {
+  test("accepts a valid third response by default after two invalid ones", async () => {
     const { create, sdk } = makeSdk("nope", "nope", '{"A":3}');
     const client = createDefaultCerebrasClient("key", { sdk });
 
@@ -235,6 +234,26 @@ describe("cerebras provider", () => {
     expect((error as Error).message).toBe(
       "Cerebras returned an error response (status_code=400, code=wrong_api_format, type=invalid_request_error)",
     );
+  });
+
+  test("hides the response body of an SDK API error and keeps it as the cause", async () => {
+    const apiError = Object.assign(new Error("400 echoed user query"), { status: 400 });
+    const create = vi.fn<CreateFn>().mockRejectedValue(apiError);
+    const client = createDefaultCerebrasClient("key", { sdk: sdkOf(create) });
+
+    const failure = await client.call([...MESSAGES], SCHEMA).catch((error: Error) => error);
+
+    expect(failure).toBeInstanceOf(Error);
+    expect((failure as Error).message).toBe("Cerebras request failed (status=400)");
+    expect((failure as Error).cause).toBe(apiError);
+  });
+
+  test("falls back to the default attempt count when the option is not finite", async () => {
+    const { create, sdk } = makeSdk("nope", "nope", "nope", "nope");
+    const client = createDefaultCerebrasClient("key", { sdk, jsonRepairAttempts: Infinity });
+
+    await expect(client.call([...MESSAGES], SCHEMA)).rejects.toThrow(/invalid JSON/);
+    expect(create).toHaveBeenCalledTimes(CONFIG.CEREBRAS.JSON_REPAIR_ATTEMPTS);
   });
 
   test("uses n/a when an error response has no code or type", async () => {

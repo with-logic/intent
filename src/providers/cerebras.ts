@@ -175,6 +175,37 @@ function buildRepairRequest(
 }
 
 /**
+ * Send one request to the SDK and hide the response body of an API error.
+ *
+ * An API error message is built from the response body, which can echo the request content.
+ * The original error stays available as `cause`.
+ *
+ * @param sdk - SDK client
+ * @param request - Request to send
+ * @param options - Optional per-request SDK options
+ * @returns The SDK response
+ * @throws {Error} A content-free error for an API error, or the original error otherwise
+ * @private
+ */
+async function createCompletion(
+  sdk: CerebrasSdkLike,
+  request: Parameters<CerebrasSdkLike["chat"]["completions"]["create"]>[0],
+  options: { timeout: number } | undefined,
+) {
+  try {
+    return await sdk.chat.completions.create(request, options);
+  } catch (error) {
+    const status = (error as { status?: unknown } | null)?.status;
+    if (typeof status === "number") {
+      throw Object.assign(new Error(`Cerebras request failed (status=${status})`), {
+        cause: error,
+      });
+    }
+    throw error;
+  }
+}
+
+/**
  * Send the request, parse the JSON content, and retry with a repair turn on a parse failure.
  *
  * Errors from the SDK (rate limits, invalid requests, timeouts, outages) are not
@@ -193,7 +224,7 @@ async function completeWithRepair<T>(
   timeoutMs: number | undefined,
 ): Promise<{ data: T }> {
   const options = typeof timeoutMs === "number" ? { timeout: timeoutMs } : undefined;
-  const content = getResponseContent(await sdk.chat.completions.create(state.request, options));
+  const content = getResponseContent(await createCompletion(sdk, state.request, options));
   try {
     return { data: JSON.parse(content) as T };
   } catch (error) {
@@ -239,7 +270,11 @@ export function createDefaultCerebrasClient(
     reasoningEffort: options?.defaults?.reasoningEffort ?? CONFIG.CEREBRAS.DEFAULT_REASONING_EFFORT,
   };
   const sdk = options?.sdk ?? createCerebrasSdk(apiKey);
-  const attempts = Math.max(1, options?.jsonRepairAttempts ?? CONFIG.CEREBRAS.JSON_REPAIR_ATTEMPTS);
+  const requestedAttempts = options?.jsonRepairAttempts ?? CONFIG.CEREBRAS.JSON_REPAIR_ATTEMPTS;
+  // NaN and Infinity would never end the repair loop, so they fall back to the configured default.
+  const attempts = Number.isFinite(requestedAttempts)
+    ? Math.max(1, Math.floor(requestedAttempts))
+    : Math.max(1, CONFIG.CEREBRAS.JSON_REPAIR_ATTEMPTS);
 
   return {
     /**

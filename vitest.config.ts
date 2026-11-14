@@ -17,6 +17,8 @@ export default defineConfig({
     // Integration tests call a live API. One at a time keeps a low requests-per-minute key from
     // stalling several tests at once; the SDK waits up to 60 s for a rate-limit retry.
     maxConcurrency: 1,
+    // Run test files one after another when live tests are included, for the same reason.
+    fileParallelism: scope === "unit",
     testTimeout: scope === "int" ? 20000 : 5000,
     hookTimeout: scope === "int" ? 20000 : 5000,
     coverage: {
