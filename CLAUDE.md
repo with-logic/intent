@@ -372,10 +372,11 @@ read, and the review then mixes two revisions. Do not add a script or workflow
 to this repository that downloads or selects review skills: `.crewrc` is the
 only place that selects them, and the plain command
 `crew install --latest --json` installs them.
+
 The hosted review workflow is the one exception to the rule against a script or
 workflow that downloads or selects review skills: its `review-source` input, with the
 variable `PIPELINE_SOURCE_APP_CLIENT_ID` and the secret `PIPELINE_SOURCE_APP_PRIVATE_KEY`,
-selects the Skills source for hosted CI only.
+selects the Skills source for hosted CI only. The local review still uses `.crewrc`.
 
 ## Shared local review
 
