@@ -373,10 +373,11 @@ to this repository that downloads or selects review skills: `.crewrc` is the
 only place that selects them, and the plain command
 `crew install --latest --json` installs them.
 
-The hosted review workflow is the one exception to the rule against a script or
-workflow that downloads or selects review skills: its `skills-app-client-id` input, with the
-variable `PIPELINE_SOURCE_APP_CLIENT_ID` and the secret `PIPELINE_SOURCE_APP_PRIVATE_KEY`,
-selects the Skills source for hosted CI only. The local review still uses `.crewrc`.
+The hosted review workflow does not download or select review skills. It passes
+the source App credentials to Pipeline's shared review action: the
+`skills-app-client-id` input (variable `PIPELINE_SOURCE_APP_CLIENT_ID`) and the
+`skills-app-private-key` input (secret `PIPELINE_SOURCE_APP_PRIVATE_KEY`). That
+action always fetches the skills from `with-logic/skills`. The local review still uses `.crewrc`.
 
 ## Shared local review
 
